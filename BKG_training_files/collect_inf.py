@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
 import gnubg, os, time, socket, signal, sys, random
 
-OUTPUT_DIR         = '/Users/nikos/Desktop/gnubg/games'
+OUTPUT_DIR         = 'games'
 INACTIVITY_TIMEOUT = 10.0           # s sans mouvement => bloqué
 instance_id        = '%s_%s' % (socket.gethostname(), os.getpid())
 DIFFICULTIES = ['beginner', 'intermediate', 'advanced', 'world_class']
