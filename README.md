@@ -136,3 +136,14 @@ Several constants at the beginning of BKG_2_05.py can be adjusted:
 3. NN_WEIGHT: Balance between heuristic (0.0) and NN (1.0). Default is 0.5.
 4. NUM_DICE_SAMPLES: Number of dice rolls sampled at chance nodes (higher = slower, more accurate expectation).
 5. SHOW_STATS: Set to True to enable cProfile output after AI moves (for performance analysis).
+
+ 
+## Acknowledgments and Credits
+
+This project merges two approaches:
+
+*   The **Minimax search structure with Alpha-Beta pruning and dice sampling** was inspired by and adapted from the java code provided by Llasserre / llaki in the [llaki/BackgammonAI](https://github.com/llaki/BackgammonAI/tree/master) project. Thanks for that clear and effective initial work.
+*   The **detailed adaptive heuristic evaluation function** and the **ASCII game interface** originate from a previous personal script (`BKG-21_04.py`).
+*   (+) An unvaluable help has been provided by Google AI Studio.
+
+The goal was to leverage the predictive power of Minimax + NN guidance for pruning while benefiting from the nuances of an advanced, dynamic position evaluation.
