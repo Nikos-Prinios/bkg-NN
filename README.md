@@ -2,7 +2,40 @@
 
 This repository contains a Python implementation of a Backgammon game featuring a command-line interface and an AI opponent. The AI employs a hybrid approach, combining traditional game heuristics with a neural network evaluator within an Expectiminimax search framework.
 
-![Screenshot of the Backgammon game interface](bkg.jpg)
+```bash
+========================= Tour 6: Votre Tour (X) =========================
+   13 14 15 16 17 18 |BAR| 19 20 21 22 23 24
+   +-----------------+---+-------------------+
+   |X           O    |   |  O     O  O     X |   W Last: 18/21, 20/21
+   |X           O    |   |  O     O  O     X |   Turn: B[X] Ph:OPENING
+   |                 |   |  O                |   W Off [O]:  0
+   |                 |   |                   |   +-------+
+   |                 |   |                   |   | o o o |
+   |                 |   |                   |   |       |
+   |                 |   |                   |   | o o o |
+   |                 |   |                   |   +-------+
+   +-----------------+BAR+-------------------+
+   |                 |   |                   |   +-------+
+   |                 |   |                   |   | o     |
+   |                 |   |                   |   |       |
+   |                 |   |  6                |   |     o |
+   |O           X    |   |  X                |   +-------+
+   |O           X    |   |  X                |
+   |O           X    |   |  X              O |   B Off [X]:  0
+   |O     X     X    |   |  X              O |
+   +-----------------+---+-------------------+
+   12 11 10 09 08 07 |BAR| 06 05 04 03 02 01
+
+   Phase: OPENING
+   Vos Pips: 152 | Pips IA: 148 | Diff: +4 (inférieur = mieux)
+   Bar: B=0 N=0 | Off: B=0 N=0
+   Lancer: [6, 2]
+
+----------------------------------------
+   Dés restants: [6, 2]
+   Coups possibles: 10/4, 10/8, 13/11, 13/7, 24/18, 6/4, 8/2, 8/6
+   Entrez coup 1/2 (ex: 6/1, bar/5, 23/off) ou 'p' pour passer: 
+   ```
 
 ## Features
 
