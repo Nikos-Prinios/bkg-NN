@@ -2,7 +2,7 @@
 
 This repository contains a Python implementation of a Backgammon game featuring a command-line interface and an AI opponent. The AI employs a hybrid approach, combining traditional game heuristics with a neural network evaluator within an Expectiminimax search framework.
 
-![Alt text](path/or/url/to/your/image.jpg "dear bkg")
+![Alt text](bkg.jpg "dear bkg")
 
 ## Features
 
