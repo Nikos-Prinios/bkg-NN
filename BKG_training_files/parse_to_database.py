@@ -1,28 +1,17 @@
-# parse_gnubg.py — full, corrected script
-# Standard library imports
 import re, json, sys, glob, hashlib, sqlite3
 from pathlib import Path
 from typing import List, Dict, Any
 
-###############################################################################
-#  Constants                                                                  #
-###############################################################################
 TOTAL_CHECKERS = 15
-PLAYER_W, PLAYER_B = 'O', 'X'  # internal white / black symbols
+PLAYER_W, PLAYER_B = 'O', 'X'
 _BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-###############################################################################
-#  Low‑level helpers                                                          #
-###############################################################################
 
 def _file_uid(path: str) -> str:
     """Return a unique id for each export file (stem if timestamped else sha1)."""
     stem = Path(path).stem
     return stem if re.match(r"^\d+_", stem) else hashlib.sha1(stem.encode()).hexdigest()[:16]
 
-###############################################################################
-#  Position ID                                                                #
-###############################################################################
 
 def _bits_from_id(pid: str) -> List[int]:
     bits = []
@@ -51,9 +40,6 @@ def _decode_position_id(pid: str) -> Dict[str, Any]:
             "bar": {PLAYER_B: bar_b, PLAYER_W: bar_w},
             "off": {PLAYER_B: off_b, PLAYER_W: off_w}}
 
-###############################################################################
-#  ASCII board diagram                                                        #
-###############################################################################
 
 def _decode_board(lines: List[str]) -> Dict[str, Any]:
     """Parse the ASCII diagram; return {} on failure."""
@@ -88,10 +74,7 @@ def _decode_board(lines: List[str]) -> Dict[str, Any]:
     return {"board_pts": pts,
             "bar": {PLAYER_B: bar_b, PLAYER_W: bar_w},
             "off": {PLAYER_B: off_b, PLAYER_W: off_w}}
-
-###############################################################################
-#  Evaluation line                                                            #
-###############################################################################
+    
 
 def _parse_eval(lines: List[str], i: int):
     m = re.match(r"\*?\s*(\d+)\.\s+.*?\s{2,}(.+?)\s+Eq\.:\s+([+-]?[0-9],[0-9]+)(?:\s*\(([^)]+)\))?", lines[i])
@@ -109,18 +92,12 @@ def _parse_eval(lines: List[str], i: int):
             i += 1
     return {"rank": rank, "move": move, "equity": eq, "equity_diff": diff, "probabilities": probs}, i+1
 
-###############################################################################
-#  Parsing helpers                                                            #
-###############################################################################
 
 def _skip(lines: List[str], i: int) -> int:
     while i < len(lines) and not lines[i].strip():
         i += 1
     return i
 
-###############################################################################
-#  Move parser                                                                #
-###############################################################################
 
 def _parse_move(lines: List[str], i: int, game: int):
     m = re.match(r"Move number (\d+):\s+(\w+) to play (\d+)", lines[i])
@@ -156,9 +133,6 @@ def _parse_move(lines: List[str], i: int, game: int):
     i = _skip(lines, i)
     return mv, i
 
-###############################################################################
-#  Statistics parser                                                          #
-###############################################################################
 
 def _parse_stats(lines: List[str], i: int):
     key = 'game_statistics' if lines[i].startswith('Game') else 'match_statistics'
@@ -178,9 +152,6 @@ def _parse_stats(lines: List[str], i: int):
         i += 1
     return {key: stats}, i
 
-###############################################################################
-#  Parse one export file                                                      #
-###############################################################################
 
 def parse_gnubg_txt(path: str) -> Dict[str, Any]:
     lines = Path(path).read_text(encoding='utf-8').splitlines()
@@ -204,9 +175,6 @@ def parse_gnubg_txt(path: str) -> Dict[str, Any]:
     data['moves'] = moves; data['statistics'] = stats
     return data
 
-###############################################################################
-#  SQLite persistence                                                         #
-###############################################################################
 
 def _create_schema(conn: sqlite3.Connection):
     cur = conn.cursor()
@@ -307,9 +275,6 @@ def _insert_match(conn: sqlite3.Connection, parsed: Dict[str, Any]):
             )
     conn.commit()
 
-###############################################################################
-#  Batch ingest                                                               #
-###############################################################################
 
 def ingest_directory(folder: str, db_path: str = 'gnubg_matches.db'):
     conn = sqlite3.connect(db_path)
@@ -323,9 +288,7 @@ def ingest_directory(folder: str, db_path: str = 'gnubg_matches.db'):
             print('✖', Path(txt).name, '→', e)
     conn.close()
 
-###############################################################################
-#  CLI                                                                        #
-###############################################################################
+
 if __name__ == '__main__':
     import argparse
 
