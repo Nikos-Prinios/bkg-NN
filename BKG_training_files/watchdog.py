@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
 import subprocess, time, os, signal, sys, shutil, re
 
-GNUBG_BIN   = shutil.which('gnubg') or '/usr/local/bin/gnubg'   # adapte si besoin
-SCRIPT_PATH = '/Users/nikos/Desktop/gnubg/collect_inf.py'
+GNUBG_BIN   = shutil.which('gnubg') or '/usr/local/bin/gnubg'
+SCRIPT_PATH = 'collect_inf.py'
 NUM_INST    = 12               # nombre d’instances GNU BG à faire tourner
 HB_DEADLINE = 15              # s sans heartbeat -> redémarrage
 GRACE_TERM  = 5               # délai après SIGTERM avant SIGKILL
@@ -10,8 +9,8 @@ GRACE_TERM  = 5               # délai après SIGTERM avant SIGKILL
 hb_re   = re.compile(r'^\[hb ([^\]]+)\]')
 exp_re  = re.compile(r'^\[export ([^\]]+)\] (.*)')
 
-procs    = {}   # pid -> subprocess.Popen
-last_hb  = {}   # pid -> timestamp dernier heartbeat
+procs    = {}
+last_hb  = {}
 
 def launch():
     p = subprocess.Popen(
@@ -47,8 +46,6 @@ def main():
                     continue
                 m = exp_re.match(line)
                 if m:
-                    # ici tu pourrais compter les exports,
-                    # uploader les fichiers, etc.
                     continue
 
         # surveillance des délais
@@ -64,13 +61,12 @@ def main():
                         time.sleep(0.5)
                     if p.poll() is None:
                         p.kill()
-                # nettoyage des structures
+                # nettoyage...
                 procs.pop(pid, None)
                 last_hb.pop(pid, None)
-                # relance immédiate
                 launch()
 
-        # si moins d’instances que prévu (crash spontané), relancer
+        # si moins d’instances que prévu, relancer
         while len(procs) < NUM_INST:
             launch()
 
