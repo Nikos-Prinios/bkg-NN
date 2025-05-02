@@ -122,7 +122,9 @@ Once setup is complete, run the main script from your terminal:
 ```bash
 python BKG_NN.py
  ```
-Follow the on-screen prompts to choose your color and play the game. Enter moves in the format source/destination (e.g., 13/7, bar/5, 24/off).
+Follow the on-screen prompts to choose your color and play the game. 
+Enter moves in the format source/destination (e.g., 13/7, bar/5, 24/off).
+Have fun!
 
 ## Configuration
 
