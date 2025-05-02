@@ -81,7 +81,7 @@ for src in range(1,25):
         if dst_b >= 1 : MOVE_TABLE[d].append( (src, dst_b) )
 
 # ---------------------------------------------------------------
-# 2-ter) ZOBRIST : Nombres aléatoires pour hash incrémental (reproductible)
+# 2-ter) ZOBRIST : Nombres aléatoires pour hash incrémental 
 # ---------------------------------------------------------------
 RND64 = np.random.default_rng(2025).integers(
            low=0, high=2**63, dtype=np.uint64, size=(24, 31))
@@ -143,9 +143,9 @@ def _load_nn_model() -> MiniMaxHelperNet | None:
 
 NET = _load_nn_model() # Chargement au démarrage
 
-# Couleur CLI
+# Couleur CLI pour dernier coup joué
 YEL = "\033[33m"; RESET = "\033[0m"
-def color(s, clr): return f"{clr}{s}{RESET}" # Utilitaire couleur
+def color(s, clr): return f"{clr}{s}{RESET}"
 
 # ---------------------------------------------------------------------------
 # 4) FONCTION UTILITAIRE : encodage plateau -> tenseur NN
@@ -208,7 +208,7 @@ def _tensor_for_player(game: 'BackgammonGame', player: str) -> torch.Tensor:
     return torch.tensor(t_np, device=DEVICE)
 
 # ---------------------------------------------------------------------------
-# 5) HEURISTIQUE (évaluation rapide de position)
+# 5) HEURISTIQUE (peut-être à re-balancer...)
 # ---------------------------------------------------------------------------
 @dataclass
 class HeuristicWeights:
@@ -657,7 +657,7 @@ class BackgammonGame:
         self.available_moves = []
 
     def draw_board(self):
-        """ Crée une représentation textuelle du plateau. """
+        """ Crée une représentation textuelle du plateau. """        # UI un peu simpliste ?
         board_template = [
             list("   13 14 15 16 17 18 |BAR| 19 20 21 22 23 24    "),
             list("   +-----------------+---+-------------------+  "),
