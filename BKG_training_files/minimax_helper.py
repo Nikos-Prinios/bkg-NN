@@ -61,11 +61,6 @@ def encode_state_for_nn(row: Dict[str, Any]) -> np.ndarray | None:
         w_off = int(row.get("off_w") or 0)
         b_off = int(row.get("off_b") or 0)
 
-        # Determine player turn (heuristic: odd move number = white?)
-        # Requires 'move_number' column in the SELECT query.
-        # Gnubg typically starts game 0 move 0 as white response, game 1 move 0 as white roll
-        # Assume move_number 0, 2, 4... is White's turn to roll/move
-        # Assume move_number 1, 3, 5... is Black's turn to roll/move
         move_num = row.get("move_number")
         if move_num is None: return None # Cannot determine turn
         player_turn = 'w' if move_num % 2 == 0 else 'b'
@@ -89,7 +84,6 @@ def encode_state_for_nn(row: Dict[str, Any]) -> np.ndarray | None:
             b_off / NUM_CHECKERS
         ], dtype=np.float32)
 
-        # Combine all features in the correct order (MUST match state_to_tensor)
         features = np.concatenate([
             whites_norm,        # Features 0-23
             blacks_norm,        # Features 24-47
@@ -134,8 +128,6 @@ class EquityDataset(Dataset):
         print(f"Loading data from {self.db_path}...")
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        # Select columns needed for features AND the target equity
-        # Include move_number to determine player turn
         query = """
             SELECT m.file_uid, m.game_id, m.move_number, -- Identifiers
                    m.board_pts, m.bar_b, m.bar_w, m.off_b, m.off_w, -- State features
@@ -164,7 +156,6 @@ class EquityDataset(Dataset):
                     processed_data.append({'x': x_features, 'y': y_target})
                 except (TypeError, ValueError):
                     invalid_count += 1
-                    # print(f"Warning: Invalid target equity '{row['best_eq']}' for row {i}. Skipping.")
             else:
                 invalid_count += 1 # encode_state_for_nn failed
 
@@ -173,9 +164,6 @@ class EquityDataset(Dataset):
 
         self._cached_data = processed_data
         print(f"Successfully processed {len(self._cached_data)} data points.")
-
-    # No need for _open, __getstate__, __setstate__ if data is cached in memory
-    # Be mindful of memory usage for very large datasets.
 
     def __len__(self):
         return len(self._cached_data) if self._cached_data else 0
@@ -194,31 +182,28 @@ class EquityDataset(Dataset):
 class MiniMaxHelper(pl.LightningModule):
     def __init__(self, input_dim: int = INPUT_DIM, learning_rate: float = LR):
         super().__init__()
-        # Save hyperparameters like input_dim and learning_rate
+        
         self.save_hyperparameters()
-        self.input_dim = input_dim # Store explicitly
-        self.learning_rate = learning_rate # Store explicitly
+        self.input_dim = input_dim
+        self.learning_rate = learning_rate
 
         # Define the network architecture
         self.net = nn.Sequential(
             nn.Linear(self.input_dim, 256), nn.ReLU(),
             nn.Linear(256, 256), nn.ReLU(),
-            nn.Linear(256, 1), # Output is single equity value
+            nn.Linear(256, 1),
         )
-        self.loss_fn = nn.MSELoss() # Mean Squared Error for regression
+        self.loss_fn = nn.MSELoss() # --> Mean Squared Error for regression
 
         print(f"Initialized MiniMaxHelper model with input_dim={self.input_dim}")
 
     def forward(self, x):
-        # Input x shape: (BatchSize, input_dim)
-        # Output shape: (BatchSize, 1) -> squeeze -> (BatchSize,)
-        return self.net(x).squeeze(1) # Remove the last dimension
+        return self.net(x).squeeze(1) # --> Remove the last dimension
 
     def training_step(self, batch, batch_idx):
-        x, y = batch # Unpack batch data
-        y_pred = self(x) # Get model predictions
-        loss = self.loss_fn(y_pred, y) # Calculate loss
-        # Log training loss
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
@@ -226,14 +211,11 @@ class MiniMaxHelper(pl.LightningModule):
         x, y = batch
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
-        # Log validation loss
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        # Optionally log other metrics like MAE
         mae = torch.abs(y_pred - y).mean()
         self.log("val_mae", mae, on_step=False, on_epoch=True, prog_bar=False, logger=True)
 
     def configure_optimizers(self):
-        # Use Adam optimizer with the specified learning rate
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
 
@@ -243,7 +225,7 @@ class MiniMaxHelper(pl.LightningModule):
 
 def main():
     print("Starting training process...")
-    pl.seed_everything(SEED) # Ensure reproducibility
+    pl.seed_everything(SEED)
 
     # --- Dataset and Dataloaders ---
     print("Initializing dataset...")
@@ -257,14 +239,14 @@ def main():
     print(f"Splitting data: Train={train_len}, Validation={val_len}")
     train_ds, val_ds = random_split(full_ds, [train_len, val_len])
 
-    persistent = NUM_WORKERS > 0 # Use persistent workers only if num_workers > 0
+    persistent = NUM_WORKERS > 0
 
     train_dl = DataLoader(
         train_ds,
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=NUM_WORKERS,
-        pin_memory=True, # Good practice if using GPU
+        pin_memory=True,
         persistent_workers=persistent,
     )
     val_dl = DataLoader(
@@ -279,11 +261,9 @@ def main():
 
     # --- Model and Trainer ---
     print("Initializing model...")
-    # Pass explicit parameters matching our config
     model = MiniMaxHelper(input_dim=INPUT_DIM, learning_rate=LR)
 
     print("Initializing trainer...")
-    # Configure callbacks (e.g., early stopping, model checkpointing)
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor='val_loss',        # Metric to monitor
         dirpath='checkpoints/',    # Directory to save checkpoints
@@ -291,22 +271,12 @@ def main():
         save_top_k=1,              # Save only the best model
         mode='min',                # Minimize validation loss
     )
-    # Add early stopping?
-    # early_stop_callback = pl.callbacks.EarlyStopping(
-    #    monitor='val_loss',
-    #    patience=3, # Stop if val_loss doesn't improve for 3 epochs
-    #    verbose=False,
-    #    mode='min'
-    # )
 
     trainer = pl.Trainer(
         max_epochs=EPOCHS,
-        # accelerator="gpu" if torch.cuda.is_available() else "cpu", # Auto-detect usually works
-        # devices=1, # Use 1 GPU or CPU
         gradient_clip_val=1.0,     # Prevent exploding gradients
         log_every_n_steps=50,      # How often to log within an epoch
         callbacks=[checkpoint_callback] # Add callbacks
-        # Add logger=... for TensorBoard/WandB etc. if desired
     )
 
     # --- Training ---
@@ -319,10 +289,8 @@ def main():
     print(f"Best model saved at: {best_model_path}")
 
     # Load the best model checkpoint
-    # Ensure map_location is set if loading onto a different device than training
     best_model = MiniMaxHelper.load_from_checkpoint(best_model_path)
 
-    # Save just the state_dict for inference use in the game script
     output_filename = "minimax_helper.pt"
     out = Path(output_filename)
     torch.save(best_model.state_dict(), out)
