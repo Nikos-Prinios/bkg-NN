@@ -111,9 +111,11 @@ The provided `minimax_helper.pt` neural network model was trained on a dataset g
     This command compiles `speedups.pyx` into C code and then builds a native extension module (e.g., `speedups.cpython-3X-...so` or `speedups.pyd`) directly in your project folder, allowing Python to import it.
 
 5.  **Get the Neural Network Model:**
-    *   Download the pre-trained `minimax_helper.pt` file.
+    *   Don't forget to download the pre-trained `minimax_helper.pt` file.
     *   Place it in the **root directory** of the project, alongside the main Python script (`BKG_NN.py`).
-    *   Alternatively, you can attempt to retrain the model using the provided training pipeline scripts (this will require setting up `gnubg` and potentially significant time).
+    *   Alternatively, you can attempt to retrain the model using the provided training pipeline scripts (this will require setting up `gnubg` and potentially significant time...*)
+
+(*) As a reference, the watchdog script along with collect_inf can produce 15 full games in one minutes on a MAC M2. That makes 100 000 games in 4.5 days.
 
 ## Running the Game
 
