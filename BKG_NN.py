@@ -230,11 +230,13 @@ class HeuristicWeights:
     TRAPPED_CHECKER_BONUS: float = 8.0
     ENDGAME_BACK_CHECKER_PENALTY_FACTOR: float = -1.5
     STRATEGIC_BLOT_PENALTY_REDUCTION: float = 0.0
+    RACE_MODE_FACTOR: float = 1.0  # Facteur multiplicateur pour le pip en mode course
+    RACE_MODE_OTHER_FACTOR_REDUCTION: float = 0.1  # Facteur pour réduire les autres bonus/malus en course (ex: 0.1 = 90% de réduction)
 
 # --- Poids différents selon la phase de jeu ---
 OPENING_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=0.8, OFF_SCORE_FACTOR=5.0, HIT_BONUS=35.0, BAR_PENALTY=-25.0, POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=2.0, INNER_HOME_POINT_BONUS=1.0, ANCHOR_BONUS=8.0, PRIME_BASE_BONUS=5.0, DIRECT_SHOT_PENALTY_FACTOR=-1.0, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.6, AGGRESSION_THRESHOLD=12.0, MIDGAME_HOME_PRISON_BONUS=15.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.5, TRAPPED_CHECKER_BONUS=6.0, ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-0.0, STRATEGIC_BLOT_PENALTY_REDUCTION = 0.4)
 MIDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=1.2, OFF_SCORE_FACTOR=15.0, HIT_BONUS=40.0, BAR_PENALTY=-25.0, POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=5.0, INNER_HOME_POINT_BONUS=3.0, ANCHOR_BONUS=3.0, PRIME_BASE_BONUS=5.0, DIRECT_SHOT_PENALTY_FACTOR=-1.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.5, AGGRESSION_THRESHOLD=15.0, MIDGAME_HOME_PRISON_BONUS=20.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.7, TRAPPED_CHECKER_BONUS=8.0, ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-0.0, STRATEGIC_BLOT_PENALTY_REDUCTION = 0.3)
-ENDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=3.0, OFF_SCORE_FACTOR=30.0, HIT_BONUS=50.0, BAR_PENALTY=-50.0, POINT_BONUS=0.5, HOME_BOARD_POINT_BONUS=0.5, INNER_HOME_POINT_BONUS=0.2, ANCHOR_BONUS=1.0, PRIME_BASE_BONUS=1.0, DIRECT_SHOT_PENALTY_FACTOR=-2.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.2, AGGRESSION_THRESHOLD=5.0, MIDGAME_HOME_PRISON_BONUS=0.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.0, TRAPPED_CHECKER_BONUS=2.0,ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-1.5,STRATEGIC_BLOT_PENALTY_REDUCTION = 0.7)
+ENDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=3.0, OFF_SCORE_FACTOR=30.0, HIT_BONUS=50.0, BAR_PENALTY=-50.0, POINT_BONUS=0.5, HOME_BOARD_POINT_BONUS=0.5, INNER_HOME_POINT_BONUS=0.2, ANCHOR_BONUS=1.0, PRIME_BASE_BONUS=1.0, DIRECT_SHOT_PENALTY_FACTOR=-2.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.2, AGGRESSION_THRESHOLD=5.0, MIDGAME_HOME_PRISON_BONUS=0.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.0, TRAPPED_CHECKER_BONUS=2.0,ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-1.5,STRATEGIC_BLOT_PENALTY_REDUCTION = 0.7, RACE_MODE_FACTOR = 2.0,RACE_MODE_OTHER_FACTOR_REDUCTION = 0.1)
 
 PHASE_WEIGHTS = {"OPENING": OPENING_WEIGHTS, "MIDGAME": MIDGAME_WEIGHTS, "ENDGAME": ENDGAME_WEIGHTS}
 
@@ -975,19 +977,74 @@ class BackgammonGame:
                     total_back_pips += abs(board[i]) * pip_calc_func(i)
             endgame_back_checker_penalty = total_back_pips * weights.ENDGAME_BACK_CHECKER_PENALTY_FACTOR
 
-        # --- 8. Score Total Combiné ---
+            # --- 7bis. Détection et application du Mode Course ---
+            is_race = False
+            # Condition simple : Aucun pion sur la barre ET le pion le plus arriéré du joueur
+            # est strictement devant le pion le plus arriéré de l'adversaire.
+            if p_bar == 0 and o_bar == 0:
+                # Trouver l'index du pion le plus arriéré du joueur (plus petit index pour W, plus grand pour B)
+                p_last_idx = -1
+                if player_to_evaluate == 'w':
+                    for i in range(24):
+                        if board[i] * p_sign > 0: p_last_idx = i; break
+                else:  # player_to_evaluate == 'b':
+                    for i in range(23, -1, -1):
+                        if board[i] * p_sign > 0: p_last_idx = i; break
+
+                # Trouver l'index du pion le plus arriéré de l'adversaire
+                o_last_idx = -1
+                if opp == 'w':
+                    for i in range(24):
+                        if board[i] * o_sign > 0: o_last_idx = i; break
+                else:  # opp == 'b':
+                    for i in range(23, -1, -1):
+                        if board[i] * o_sign > 0: o_last_idx = i; break
+
+                # Vérifier si les deux joueurs ont des pions sur le plateau
+                if p_last_idx != -1 and o_last_idx != -1:
+                    if player_to_evaluate == 'w':
+                        if p_last_idx > o_last_idx:  # Index du blanc > Index du noir => Blanc est devant
+                            is_race = True
+                    else:  # player_to_evaluate == 'b'
+                        if p_last_idx < o_last_idx:  # Index du noir < Index du blanc => Noir est devant
+                            is_race = True
+
+            # Ajustement des scores si en mode course
+            if is_race and hasattr(weights, 'RACE_MODE_FACTOR') and hasattr(weights,
+                                                                            'RACE_MODE_OTHER_FACTOR_REDUCTION'):
+                pip_score *= weights.RACE_MODE_FACTOR  # Augmente l'importance du pip
+
+                # Réduit l'importance des autres facteurs
+                reduction_factor = weights.RACE_MODE_OTHER_FACTOR_REDUCTION
+                point_bonus_total *= reduction_factor
+                home_point_bonus_total *= reduction_factor
+                inner_home_bonus_total *= reduction_factor
+                anchor_bonus_total *= reduction_factor  # Les ancres n'ont plus d'utilité
+                builder_bonus_total *= reduction_factor
+                five_point_bonus_val *= reduction_factor
+                stacking_penalty_total *= reduction_factor  # Moins grave en course pure
+                blot_penalty_total *= reduction_factor  # Moins de risque si pas de retour
+                prime_bonus_total *= reduction_factor  # Les primes n'ont plus d'utilité de blocage
+                six_prime_bonus_val *= reduction_factor
+                trapped_checker_bonus_total *= reduction_factor
+                midgame_prison_bonus = 0.0
+                closeout_bonus_total = 0.0
+                back_checker_penalty_midgame *= reduction_factor
+                endgame_back_checker_penalty *= reduction_factor
+
+            # --- 8. Score Total Combiné ---
         total_score = (
-                pip_score + off_score + bar_penalty + hit_bonus +  # Scores de base
-                point_bonus_total + home_point_bonus_total +  # Points standard
-                inner_home_bonus_total + anchor_bonus_total +  # Points spécifiques
-                prime_bonus_total + blot_penalty_total +  # Primes et Blots (modulés)
-                midgame_prison_bonus + trapped_checker_bonus_total +  # Contrôle / Blocage
-                back_checker_penalty_midgame + endgame_back_checker_penalty +  # Pénalités phase
-                builder_bonus_total +  # Nouveau: Points constructeurs
-                stacking_penalty_total +  # Nouveau: Pénalité empilement
-                five_point_bonus_val +  # Nouveau: Bonus point 5/20
-                six_prime_bonus_val +  # Nouveau: Bonus prime de 6
-                closeout_bonus_total  # Nouveau: Bonus fermeture
+                pip_score + off_score + bar_penalty + hit_bonus +  # Scores de base (pip ajusté si race)
+                point_bonus_total + home_point_bonus_total +  # Points standard (réduits si race)
+                inner_home_bonus_total + anchor_bonus_total +  # Points spécifiques (réduits si race)
+                prime_bonus_total + blot_penalty_total +  # Primes et Blots (réduits si race)
+                midgame_prison_bonus + trapped_checker_bonus_total +  # Contrôle / Blocage (réduits si race)
+                back_checker_penalty_midgame + endgame_back_checker_penalty +  # Pénalités phase (réduites si race)
+                builder_bonus_total +  # Nouveau (réduit si race)
+                stacking_penalty_total +  # Nouveau (réduit si race)
+                five_point_bonus_val +  # Nouveau (réduit si race)
+                six_prime_bonus_val +  # Nouveau (réduit si race)
+                closeout_bonus_total  # Nouveau (réduit si race)
         )
 
         return total_score
