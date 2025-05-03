@@ -2,6 +2,8 @@
 
 This repository contains a Python implementation of a Backgammon game featuring a command-line interface and an AI opponent. The AI employs a hybrid approach, combining traditional game heuristics with a neural network evaluator within an Expectiminimax search framework.
 
+A complete article on the project is available here : https://tokipona.today/2025/05/10/BKG-The-Hybridation/
+
 ```bash
 =========== Tour 8: Votre Tour (X) ===========
    13 14 15 16 17 18 |BAR| 19 20 21 22 23 24
