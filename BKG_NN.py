@@ -12,6 +12,7 @@ from numpy.typing import NDArray
 BoardArr = NDArray[np.int8]
 import cProfile
 import pstats
+import copy as std_copy
 
 # Initialisation Cython
 calculate_pip_fast = None
@@ -81,7 +82,7 @@ for src in range(1,25):
         if dst_b >= 1 : MOVE_TABLE[d].append( (src, dst_b) )
 
 # ---------------------------------------------------------------
-# 2-ter) ZOBRIST : Nombres aléatoires pour hash incrémental 
+# 2-ter) ZOBRIST : Nombres aléatoires pour hash incrémental (reproductible)
 # ---------------------------------------------------------------
 RND64 = np.random.default_rng(2025).integers(
            low=0, high=2**63, dtype=np.uint64, size=(24, 31))
@@ -143,13 +144,12 @@ def _load_nn_model() -> MiniMaxHelperNet | None:
 
 NET = _load_nn_model() # Chargement au démarrage
 
-# Couleur CLI pour dernier coup joué
+# Couleur CLI
 YEL = "\033[33m"; RESET = "\033[0m"
-def color(s, clr): return f"{clr}{s}{RESET}"
+def color(s, clr): return f"{clr}{s}{RESET}" # Utilitaire couleur
 
 # ---------------------------------------------------------------------------
 # 4) FONCTION UTILITAIRE : encodage plateau -> tenseur NN
-#    *** DOIT CORRESPONDRE À L'ENCODAGE UTILISÉ À L'ENTRAÎNEMENT ***
 # ---------------------------------------------------------------------------
 def state_to_tensor(game: 'BackgammonGame') -> torch.Tensor:
     """
@@ -208,7 +208,7 @@ def _tensor_for_player(game: 'BackgammonGame', player: str) -> torch.Tensor:
     return torch.tensor(t_np, device=DEVICE)
 
 # ---------------------------------------------------------------------------
-# 5) HEURISTIQUE (peut-être à re-balancer...)
+# 5) HEURISTIQUE (évaluation rapide de position)
 # ---------------------------------------------------------------------------
 @dataclass
 class HeuristicWeights:
@@ -228,11 +228,13 @@ class HeuristicWeights:
     MIDGAME_HOME_PRISON_BONUS: float = 20.0
     FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR: float = 0.0
     TRAPPED_CHECKER_BONUS: float = 8.0
+    ENDGAME_BACK_CHECKER_PENALTY_FACTOR: float = -1.5
+    STRATEGIC_BLOT_PENALTY_REDUCTION: float = 0.0
 
 # --- Poids différents selon la phase de jeu ---
-OPENING_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=0.8, OFF_SCORE_FACTOR=5.0, HIT_BONUS=35.0, BAR_PENALTY=-25.0, POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=2.0, INNER_HOME_POINT_BONUS=1.0, ANCHOR_BONUS=8.0, PRIME_BASE_BONUS=5.0, DIRECT_SHOT_PENALTY_FACTOR=-1.0, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.6, AGGRESSION_THRESHOLD=12.0, MIDGAME_HOME_PRISON_BONUS=15.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.5, TRAPPED_CHECKER_BONUS=6.0)
-MIDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=1.2, OFF_SCORE_FACTOR=15.0, HIT_BONUS=40.0, BAR_PENALTY=-25.0, POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=5.0, INNER_HOME_POINT_BONUS=3.0, ANCHOR_BONUS=3.0, PRIME_BASE_BONUS=5.0, DIRECT_SHOT_PENALTY_FACTOR=-1.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.5, AGGRESSION_THRESHOLD=15.0, MIDGAME_HOME_PRISON_BONUS=20.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.7, TRAPPED_CHECKER_BONUS=8.0)
-ENDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=3.0, OFF_SCORE_FACTOR=30.0, HIT_BONUS=50.0, BAR_PENALTY=-50.0, POINT_BONUS=0.5, HOME_BOARD_POINT_BONUS=0.5, INNER_HOME_POINT_BONUS=0.2, ANCHOR_BONUS=1.0, PRIME_BASE_BONUS=1.0, DIRECT_SHOT_PENALTY_FACTOR=-2.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.2, AGGRESSION_THRESHOLD=5.0, MIDGAME_HOME_PRISON_BONUS=0.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.0, TRAPPED_CHECKER_BONUS=2.0)
+OPENING_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=0.8, OFF_SCORE_FACTOR=5.0, HIT_BONUS=35.0, BAR_PENALTY=-25.0, POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=2.0, INNER_HOME_POINT_BONUS=1.0, ANCHOR_BONUS=8.0, PRIME_BASE_BONUS=5.0, DIRECT_SHOT_PENALTY_FACTOR=-1.0, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.6, AGGRESSION_THRESHOLD=12.0, MIDGAME_HOME_PRISON_BONUS=15.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.5, TRAPPED_CHECKER_BONUS=6.0, ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-0.0, STRATEGIC_BLOT_PENALTY_REDUCTION = 0.4)
+MIDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=1.2, OFF_SCORE_FACTOR=15.0, HIT_BONUS=40.0, BAR_PENALTY=-25.0, POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=5.0, INNER_HOME_POINT_BONUS=3.0, ANCHOR_BONUS=3.0, PRIME_BASE_BONUS=5.0, DIRECT_SHOT_PENALTY_FACTOR=-1.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.5, AGGRESSION_THRESHOLD=15.0, MIDGAME_HOME_PRISON_BONUS=20.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.7, TRAPPED_CHECKER_BONUS=8.0, ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-0.0, STRATEGIC_BLOT_PENALTY_REDUCTION = 0.3)
+ENDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=3.0, OFF_SCORE_FACTOR=30.0, HIT_BONUS=50.0, BAR_PENALTY=-50.0, POINT_BONUS=0.5, HOME_BOARD_POINT_BONUS=0.5, INNER_HOME_POINT_BONUS=0.2, ANCHOR_BONUS=1.0, PRIME_BASE_BONUS=1.0, DIRECT_SHOT_PENALTY_FACTOR=-2.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.2, AGGRESSION_THRESHOLD=5.0, MIDGAME_HOME_PRISON_BONUS=0.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.0, TRAPPED_CHECKER_BONUS=2.0,ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-1.5,STRATEGIC_BLOT_PENALTY_REDUCTION = 0.7)
 
 PHASE_WEIGHTS = {"OPENING": OPENING_WEIGHTS, "MIDGAME": MIDGAME_WEIGHTS, "ENDGAME": ENDGAME_WEIGHTS}
 
@@ -243,7 +245,7 @@ class BackgammonGame:
     """ Gère l'état du jeu, les règles, l'évaluation. """
     OPENING_EXIT_TOTAL_PIP_THRESHOLD = 280 # Seuil pip pour passer de Opening à Midgame
 
-    def __init__(self, human_player=None):
+    def __init__(self, human_player=None, initial_game=True):
         """ Initialise le plateau et l'état du jeu. """
         self.board: BoardArr = np.array([
              2, 0, 0, 0, 0, -5, 0, -3, 0, 0, 0, 5, # Flèches 1-12
@@ -265,17 +267,19 @@ class BackgammonGame:
 
     def copy(self):
         """ Crée une copie profonde pour la simulation IA. """
-        new_game = BackgammonGame(human_player=self.human_player)
-        new_game.board = self.board.copy()
+        new_game = object.__new__(BackgammonGame)
+        new_game.board = self.board.copy()  # Copie profonde nécessaire pour numpy array
         new_game.white_bar = self.white_bar
         new_game.black_bar = self.black_bar
         new_game.white_off = self.white_off
         new_game.black_off = self.black_off
         new_game.winner = self.winner
         new_game.current_player = self.current_player
-        new_game.dice = list(self.dice)
-        new_game.available_moves = list(self.available_moves)
-        new_game.current_phase = self.current_phase
+        new_game.dice = list(self.dice)  # Copie de liste
+        new_game.available_moves = list(self.available_moves)  # Copie de liste
+        new_game.human_player = self.human_player  # Référence ok
+        new_game.ai_player = self.ai_player  # Référence ok
+        new_game.current_phase = self.current_phase  # Copie de string ok
         new_game.white_last_turn_sequence = list(self.white_last_turn_sequence)
         new_game.black_last_turn_sequence = list(self.black_last_turn_sequence)
         return new_game
@@ -332,7 +336,6 @@ class BackgammonGame:
         except Exception:
             return None, None, None
 
-    # --- Fonctions de Règles ---
     def _check_all_pieces_home(self, player, game_state):
         """ Vérifie si tous les pions du joueur sont dans son jan intérieur ou sortis. """
         if check_all_pieces_home_cy is not None:
@@ -526,7 +529,6 @@ class BackgammonGame:
                           die_to_remove = potential_die; break # Trouvé le plus petit dé valide
 
         if die_to_remove is None:
-            # print(f"ERREUR: Dé non trouvé dans {self.dice} pour {src}/{dst}") # Debug
             return False # Coup illégal dans ce contexte
 
         # Sauvegarde état (au cas où make_move_base_logic échoue)
@@ -559,9 +561,6 @@ class BackgammonGame:
             return True # Coup réussi
 
         else:
-            # Échec de make_move_base_logic (implique coup invalide malgré tout)
-            # print(f"ERREUR: make_move_base_logic a échoué pour {player} {src}/{dst}.") # Debug
-            # Pas besoin de rollback ici, base_logic le fait déjà
             self.dice = dice_before # Restaurer les dés est important
             self.available_moves = self.get_legal_actions() # Recalculer
             return False
@@ -583,7 +582,6 @@ class BackgammonGame:
                 return bool(success)
             except Exception as e:
                 print(f"Warning: Cython make_move_base_logic échoué: {e}. Fallback Python.")
-                # Continue avec Python
 
         # ----------- Fallback Python -----------
         p_sign = 1 if player == 'w' else -1
@@ -628,7 +626,6 @@ class BackgammonGame:
             # Rollback si erreur
             self.board = save_board; self.white_bar = save_w_bar; self.black_bar = save_b_bar
             self.white_off = save_w_off; self.black_off = save_b_off
-            # print(f"Debug: make_move_base_logic échoué et rollback: {e}") # Debug
             return False # Échec
 
     def determine_game_phase(self):
@@ -647,7 +644,7 @@ class BackgammonGame:
         """ Lance les dés, met à jour l'état et calcule les coups légaux initiaux. """
         d1, d2 = random.randint(1, 6), random.randint(1, 6)
         self.dice = [d1] * 4 if d1 == d2 else [d1, d2]
-        self.available_moves = self.get_legal_actions() # Calcul immédiat
+        self.available_moves = self.get_legal_actions()
         return self.dice
 
     def switch_player(self):
@@ -657,7 +654,7 @@ class BackgammonGame:
         self.available_moves = []
 
     def draw_board(self):
-        """ Crée une représentation textuelle du plateau. """        # UI un peu simpliste ?
+        """ Crée une représentation textuelle du plateau. """
         board_template = [
             list("   13 14 15 16 17 18 |BAR| 19 20 21 22 23 24    "),
             list("   +-----------------+---+-------------------+  "),
@@ -766,111 +763,233 @@ class BackgammonGame:
         board_lines = [''.join(row_chars).rstrip() for row_chars in board_chars]
         return '\n'.join(board_lines)
 
-    @staticmethod
-    def evaluate_position_heuristic(game_state: 'BackgammonGame', player_to_evaluate: str, weights: HeuristicWeights) -> float:
-        """ Évalue la position avec l'heuristique pour un joueur donné. """
-        opp='b' if player_to_evaluate=='w' else 'w'
-        p_sign=1 if player_to_evaluate=='w' else -1
-        o_sign=-p_sign
-        board=game_state.board
 
-        # Scores de base (pip, off, bar, frappes)
-        p_pip=game_state.calculate_pip(player_to_evaluate); o_pip=game_state.calculate_pip(opp)
-        pip_score=(o_pip-p_pip)*weights.PIP_SCORE_FACTOR
-        p_off=game_state.white_off if player_to_evaluate=='w' else game_state.black_off
-        o_off=game_state.black_off if player_to_evaluate=='w' else game_state.white_off
-        off_score=(p_off-o_off)*weights.OFF_SCORE_FACTOR
-        p_bar=game_state.white_bar if player_to_evaluate=='w' else game_state.black_bar
-        o_bar=game_state.black_bar if player_to_evaluate=='w' else game_state.white_bar
-        bar_penalty=p_bar*weights.BAR_PENALTY
-        hit_bonus=o_bar*weights.HIT_BONUS
+    def evaluate_position_heuristic(self, player_to_evaluate: str, weights: HeuristicWeights) -> float:
+        """
+        Évalue la position actuelle du jeu avec une heuristique améliorée,
+        intégrant plusieurs nouvelles fonctionnalités.
+        """
+        opp = 'b' if player_to_evaluate == 'w' else 'w'
+        p_sign = 1 if player_to_evaluate == 'w' else -1
+        o_sign = -p_sign
+        board = self.board  # Accès direct
 
-        # Bonus/Malus structurels (points, ancres, blots, primes)
-        point_bonus_total=0.0; home_point_bonus_total=0.0; inner_home_bonus_total=0.0
-        anchor_bonus_total=0.0; blot_penalty_total=0.0; trapped_checker_bonus_total=0.0
-        made_points_mask=[0]*24; player_blot_positions=[]
+        # --- 1. Calculs de base indépendants du scan détaillé ---
+        p_pip = self.calculate_pip(player_to_evaluate)
+        o_pip = self.calculate_pip(opp)
+        pip_score = (o_pip - p_pip) * weights.PIP_SCORE_FACTOR
 
-        for i in range(24): # Scan du plateau
-            pos=i+1; count=board[i]; player_checker_count=count*p_sign
-            if player_checker_count>=2: # Point fait par le joueur
-                made_points_mask[i]=1; point_bonus_total+=weights.POINT_BONUS
-                is_home = (player_to_evaluate=='w' and 19<=pos<=24) or (player_to_evaluate=='b' and 1<=pos<=6)
-                if is_home: home_point_bonus_total+=weights.HOME_BOARD_POINT_BONUS
-                is_inner_home = (player_to_evaluate=='w' and 22<=pos<=24) or (player_to_evaluate=='b' and 1<=pos<=3)
-                if is_inner_home: inner_home_bonus_total+=weights.INNER_HOME_POINT_BONUS
-                is_anchor = (player_to_evaluate=='w' and 1<=pos<=6) or (player_to_evaluate=='b' and 19<=pos<=24)
-                if is_anchor: anchor_bonus_total+=weights.ANCHOR_BONUS
-            elif player_checker_count==1: # Blot du joueur
-                player_blot_positions.append(i)
+        p_off = self.white_off if player_to_evaluate == 'w' else self.black_off
+        o_off = self.black_off if player_to_evaluate == 'w' else self.white_off
+        off_score = (p_off - o_off) * weights.OFF_SCORE_FACTOR
 
-        # Calcul pénalités pour blots
-        if player_blot_positions:
+        p_bar = self.white_bar if player_to_evaluate == 'w' else self.black_bar
+        o_bar = self.black_bar if player_to_evaluate == 'w' else self.white_bar
+        bar_penalty = p_bar * weights.BAR_PENALTY
+        hit_bonus = o_bar * weights.HIT_BONUS
+
+        # --- 2. Initialisation des accumulateurs pour le scan ---
+        point_bonus_total = 0.0  # Bonus pour chaque point fait
+        home_point_bonus_total = 0.0  # Bonus points dans son jan
+        inner_home_bonus_total = 0.0  # Bonus points dans jan profond
+        anchor_bonus_total = 0.0  # Bonus points dans jan adverse
+        builder_bonus_total = 0.0  # Bonus points faits sur cases constructeur
+        five_point_bonus_val = 0.0  # Bonus spécifique pour le point 5 / 20
+        stacking_penalty_total = 0.0  # Pénalité pour empilement excessif
+        made_points_mask = [0] * 24  # Pour calcul des primes plus tard
+        player_blot_indices = []  # Pour calcul pénalité blots plus tard
+
+        # Définir les points stratégiques (Sets pour recherche rapide O(1))
+        builder_points_w = {7, 8, 9, 10, 11, 13}
+        builder_points_b = {18, 17, 16, 15, 14, 12}
+        player_builder_points = builder_points_w if player_to_evaluate == 'w' else builder_points_b
+        anchor_points_w = {1, 2, 3, 4, 5, 6}  # Jan Noir (ancres potentielles pour Blanc)
+        anchor_points_b = {19, 20, 21, 22, 23, 24}  # Jan Blanc (ancres potentielles pour Noir)
+        player_potential_anchor_points = anchor_points_w if player_to_evaluate == 'w' else anchor_points_b
+
+        # --- 3. Scan unique du plateau (indices 0-23) ---
+        for i in range(24):
+            pos = i + 1  # Position 1-24
+            count = board[i]
+            player_checker_count = count * p_sign  # Positif si joueur, négatif si opp, 0 si vide
+
+            # --- A) Point fait par le joueur (>= 2 pions) ---
+            if player_checker_count >= 2:
+                made_points_mask[i] = 1  # Marque le point comme fait
+
+                point_bonus_total += weights.POINT_BONUS  # Bonus de base
+
+                # Vérifications basées sur la localisation du point
+                is_player_home_board = (player_to_evaluate == 'w' and 19 <= pos <= 24) or \
+                                       (player_to_evaluate == 'b' and 1 <= pos <= 6)
+                is_opponent_home_board = (player_to_evaluate == 'w' and 1 <= pos <= 6) or \
+                                         (player_to_evaluate == 'b' and 19 <= pos <= 24)
+
+                if is_player_home_board:
+                    home_point_bonus_total += weights.HOME_BOARD_POINT_BONUS
+                    is_player_inner_home = (player_to_evaluate == 'w' and 22 <= pos <= 24) or \
+                                           (player_to_evaluate == 'b' and 1 <= pos <= 3)
+                    if is_player_inner_home:
+                        inner_home_bonus_total += weights.INNER_HOME_POINT_BONUS
+
+                    # Bonus spécifique point 5 / 20 (si DANS le jan)
+                    is_player_five_point = (player_to_evaluate == 'w' and pos == 5) or \
+                                           (player_to_evaluate == 'b' and pos == 20)
+
+                # Bonus spécifique point 5 / 20 (testé indépendamment de home board)
+                is_player_five_point = (player_to_evaluate == 'w' and pos == 5) or \
+                                       (player_to_evaluate == 'b' and pos == 20)
+                if is_player_five_point and hasattr(weights, 'FIVE_POINT_BONUS'):
+                    five_point_bonus_val += weights.FIVE_POINT_BONUS
+
+                if is_opponent_home_board:  # Ancre (point dans jan adverse)
+                    anchor_bonus_total += weights.ANCHOR_BONUS
+
+                if pos in player_builder_points and hasattr(weights, 'BUILDER_BONUS'):  # Point constructeur
+                    builder_bonus_total += weights.BUILDER_BONUS
+
+                # Pénalité d'empilement
+                if player_checker_count > 5 and hasattr(weights,'STACKING_PENALTY_FACTOR') and weights.STACKING_PENALTY_FACTOR != 0.0:
+                    stacking_penalty_total += (player_checker_count - 5) * weights.STACKING_PENALTY_FACTOR
+
+            # --- B) Blot du joueur (exactement 1 pion) ---
+            elif player_checker_count == 1:
+                player_blot_indices.append(i)  # Ajoute l'INDEX (0-23)
+
+        # --- 4. Calcul des pénalités pour Blots (post-scan) ---
+        blot_penalty_total = 0.0
+        if player_blot_indices:
             opponent_checker_indices = {idx for idx, count in enumerate(board) if count * o_sign > 0}
-            opp_bar_count = o_bar
-            for blot_idx in player_blot_positions:
-                blot_pos = blot_idx + 1; direct_shots = 0
-                # Tirs depuis le plateau
+            opp_bar_count = o_bar  # Réutilise la variable
+
+            for blot_idx in player_blot_indices:
+                blot_pos = blot_idx + 1
+                direct_shots_on_blot = 0
+
+                # Calcul tirs directs (plateau + barre)
                 for shot_dist in range(1, 7):
-                    shooter_pos = blot_pos + (shot_dist * p_sign); shooter_idx = shooter_pos - 1
+                    shooter_pos = blot_pos + (shot_dist * p_sign)
+                    shooter_idx = shooter_pos - 1
                     if 0 <= shooter_idx < 24 and shooter_idx in opponent_checker_indices:
-                        direct_shots += abs(board[shooter_idx])
-                # Tirs depuis la barre adverse
+                        direct_shots_on_blot += abs(board[shooter_idx])
                 if opp_bar_count > 0:
                     entry_die_needed = blot_pos if player_to_evaluate == 'b' else (25 - blot_pos)
-                    if 1 <= entry_die_needed <= 6: direct_shots += opp_bar_count
-                blot_penalty_total += direct_shots * weights.DIRECT_SHOT_PENALTY_FACTOR
-            if o_bar > 0: blot_penalty_total *= weights.BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR
+                    if 1 <= entry_die_needed <= 6:
+                        direct_shots_on_blot += opp_bar_count
 
-        # Bonus pour les primes (séquences de points)
-        prime_bonus_total=0.0; max_prime_len=0; current_prime_len=0; prime_segments=[]
+                # Pénalité de base
+                blot_penalty = direct_shots_on_blot * weights.DIRECT_SHOT_PENALTY_FACTOR
+
+                # Majoration si blot "loin" (dans son propre jan)
+                is_far_blot = (player_to_evaluate == 'w' and 1 <= blot_pos <= 6) or \
+                              (player_to_evaluate == 'b' and 19 <= blot_pos <= 24)
+                if is_far_blot and hasattr(weights,
+                                           'HIT_FAR_BLOT_PENALTY_MULTIPLIER') and weights.HIT_FAR_BLOT_PENALTY_MULTIPLIER != 1.0:
+                    blot_penalty *= weights.HIT_FAR_BLOT_PENALTY_MULTIPLIER
+
+                # Réduction si blot "stratégique" (Constructeur OU Ancre potentielle)
+                is_builder_blot = blot_pos in player_builder_points
+                is_potential_anchor_blot = blot_pos in player_potential_anchor_points
+                if (is_builder_blot or is_potential_anchor_blot) and \
+                        hasattr(weights, 'STRATEGIC_BLOT_PENALTY_REDUCTION') and \
+                        weights.STRATEGIC_BLOT_PENALTY_REDUCTION != 1.0:
+                    blot_penalty *= weights.STRATEGIC_BLOT_PENALTY_REDUCTION
+
+                # Réduction générale si adversaire sur barre
+                if opp_bar_count > 0:
+                    blot_penalty *= weights.BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR
+
+                blot_penalty_total += blot_penalty
+
+        # --- 5. Calcul des Primes et bonus associés (post-scan) ---
+        prime_bonus_total = 0.0
+        six_prime_bonus_val = 0.0
+        trapped_checker_bonus_total = 0.0
+        prime_segments = []
+        current_prime_len = 0
         for i in range(24):
-            if made_points_mask[i]==1: current_prime_len+=1
+            if made_points_mask[i] == 1:
+                current_prime_len += 1
             else:
-                if current_prime_len>=4:
-                    prime_end_idx=i-1; prime_start_idx=prime_end_idx-current_prime_len+1
-                    prime_segments.append({'start':prime_start_idx,'end':prime_end_idx,'len':current_prime_len})
-                    prime_bonus_total+=(current_prime_len-3)*weights.PRIME_BASE_BONUS
-                max_prime_len=max(max_prime_len,current_prime_len); current_prime_len=0
-        if current_prime_len>=4: # Vérifie prime finissant en 24
-            prime_end_idx=23; prime_start_idx=prime_end_idx-current_prime_len+1
-            prime_segments.append({'start':prime_start_idx,'end':prime_end_idx,'len':current_prime_len})
-            prime_bonus_total+=(current_prime_len-3)*weights.PRIME_BASE_BONUS
-        max_prime_len=max(max_prime_len,current_prime_len)
+                if current_prime_len >= 4:
+                    prime_bonus_total += (current_prime_len - 3) * weights.PRIME_BASE_BONUS
+                    if current_prime_len == 6 and hasattr(weights, 'SIX_PRIME_BONUS'):
+                        six_prime_bonus_val += weights.SIX_PRIME_BONUS
+                    prime_segments.append({'start': i - current_prime_len, 'end': i - 1, 'len': current_prime_len})
+                current_prime_len = 0
+        # Gérer prime finissant en 24
+        if current_prime_len >= 4:
+            prime_bonus_total += (current_prime_len - 3) * weights.PRIME_BASE_BONUS
+            if current_prime_len == 6 and hasattr(weights, 'SIX_PRIME_BONUS'):
+                six_prime_bonus_val += weights.SIX_PRIME_BONUS
+            prime_segments.append({'start': 24 - current_prime_len, 'end': 23, 'len': current_prime_len})
 
-        # Bonus pour pions adverses piégés derrière une prime
-        if weights.TRAPPED_CHECKER_BONUS != 0:
+        # Bonus pions piégés derrière primes de 5+
+        if hasattr(weights, 'TRAPPED_CHECKER_BONUS') and weights.TRAPPED_CHECKER_BONUS != 0 and prime_segments:
             for prime in prime_segments:
-                if prime['len']>=5:
-                    trapped_count=0
-                    trap_zone_indices = range(prime['start']) if player_to_evaluate=='w' else range(prime['end']+1, 24)
+                if prime['len'] >= 5:
+                    trapped_count = 0
+                    trap_zone_indices = range(prime['start']) if player_to_evaluate == 'w' else range(prime['end'] + 1,
+                                                                                                      24)
                     for trap_idx in trap_zone_indices:
-                        if board[trap_idx]*o_sign>0: trapped_count+=abs(board[trap_idx])
+                        if board[trap_idx] * o_sign > 0: trapped_count += abs(board[trap_idx])
                     trapped_checker_bonus_total += trapped_count * weights.TRAPPED_CHECKER_BONUS
 
-        # Bonus "prison" en milieu de partie (points faits maison + adverse sur barre)
-        midgame_prison_bonus=0.0
-        if hasattr(weights, 'MIDGAME_HOME_PRISON_BONUS') and weights.MIDGAME_HOME_PRISON_BONUS != 0:
-             home_points_made_count = sum(made_points_mask[i] for i in (range(18, 24) if player_to_evaluate == 'w' else range(6)))
-             if home_points_made_count >= 3 and o_bar > 0:
-                 midgame_prison_bonus = weights.MIDGAME_HOME_PRISON_BONUS * o_bar
+        # --- 6. Bonus situationnels (Prison, Closeout) (post-scan) ---
+        midgame_prison_bonus = 0.0
+        if hasattr(weights, 'MIDGAME_HOME_PRISON_BONUS') and weights.MIDGAME_HOME_PRISON_BONUS != 0.0:
+            home_indices = range(18, 24) if player_to_evaluate == 'w' else range(6)
+            home_points_made = sum(made_points_mask[i] for i in home_indices)
+            if home_points_made >= 3 and o_bar > 0:
+                midgame_prison_bonus = weights.MIDGAME_HOME_PRISON_BONUS * o_bar
 
-        # Pénalité pour pions arrière si très en retard au pip (optionnel)
-        back_checker_penalty = 0.0
-        is_far_behind = p_pip > 0 and o_pip > 0 and p_pip >= 1.5 * o_pip
-        if hasattr(weights, 'FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR') and weights.FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR != 0 and is_far_behind:
-            back_checker_pip_sum=0
-            back_zone=range(1,7) if player_to_evaluate=='w' else range(19,25)
-            for pos in back_zone:
-                if game_state.board[pos-1]*p_sign>0:
-                    distance=(25-pos) if player_to_evaluate=='w' else pos
-                    back_checker_pip_sum+=distance*abs(game_state.board[pos-1])
-            back_checker_penalty = back_checker_pip_sum * weights.FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR * -1.0
+        closeout_bonus_total = 0.0
+        if o_bar > 0 and hasattr(weights, 'CLOSEOUT_BONUS') and weights.CLOSEOUT_BONUS != 0.0:
+            opp_entry_indices = range(6) if opp == 'b' else range(18, 24)
+            is_closed_out = all(board[idx] * p_sign >= 2 for idx in opp_entry_indices)
+            if is_closed_out:
+                closeout_bonus_total = weights.CLOSEOUT_BONUS * o_bar
 
-        # Score total combiné
-        total_score = (pip_score + off_score + bar_penalty + hit_bonus +
-                       point_bonus_total + home_point_bonus_total + inner_home_bonus_total +
-                       anchor_bonus_total + prime_bonus_total + blot_penalty_total +
-                       midgame_prison_bonus + trapped_checker_bonus_total + back_checker_penalty)
+        # --- 7. Pénalités spécifiques de phase (post-scan) ---
+        back_checker_penalty_midgame = 0.0
+        if hasattr(weights,
+                   'FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR') and weights.FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR != 0.0:
+            is_far_behind = p_pip > 0 and o_pip > 0 and p_pip >= 1.5 * o_pip
+            if is_far_behind:
+                back_checker_pip_sum = 0
+                back_zone_indices = range(6) if player_to_evaluate == 'w' else range(18, 24)
+                for i in back_zone_indices:
+                    if board[i] * p_sign > 0:
+                        distance = (25 - (i + 1)) if player_to_evaluate == 'w' else (i + 1)
+                        back_checker_pip_sum += distance * abs(board[i])
+                back_checker_penalty_midgame = back_checker_pip_sum * weights.FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR
+
+        endgame_back_checker_penalty = 0.0
+        if hasattr(weights,
+                   'ENDGAME_BACK_CHECKER_PENALTY_FACTOR') and weights.ENDGAME_BACK_CHECKER_PENALTY_FACTOR != 0.0:
+            total_back_pips = 0
+            opp_home_indices = range(6) if opp == 'w' else range(18, 24)  # Jan adverse
+            pip_calc_func = (lambda idx: 25 - (idx + 1)) if player_to_evaluate == 'w' else (lambda idx: idx + 1)
+            for i in opp_home_indices:
+                if board[i] * p_sign > 0:  # Pion du joueur dans jan adverse
+                    total_back_pips += abs(board[i]) * pip_calc_func(i)
+            endgame_back_checker_penalty = total_back_pips * weights.ENDGAME_BACK_CHECKER_PENALTY_FACTOR
+
+        # --- 8. Score Total Combiné ---
+        total_score = (
+                pip_score + off_score + bar_penalty + hit_bonus +  # Scores de base
+                point_bonus_total + home_point_bonus_total +  # Points standard
+                inner_home_bonus_total + anchor_bonus_total +  # Points spécifiques
+                prime_bonus_total + blot_penalty_total +  # Primes et Blots (modulés)
+                midgame_prison_bonus + trapped_checker_bonus_total +  # Contrôle / Blocage
+                back_checker_penalty_midgame + endgame_back_checker_penalty +  # Pénalités phase
+                builder_bonus_total +  # Nouveau: Points constructeurs
+                stacking_penalty_total +  # Nouveau: Pénalité empilement
+                five_point_bonus_val +  # Nouveau: Bonus point 5/20
+                six_prime_bonus_val +  # Nouveau: Bonus prime de 6
+                closeout_bonus_total  # Nouveau: Bonus fermeture
+        )
+
         return total_score
 
     def compute_zobrist(self) -> np.uint64:
@@ -883,7 +1002,6 @@ class BackgammonGame:
                     ord(self.current_player), RND64, RND_BAR, RND_OFF, RND_TURN )
             except Exception as e:
                 print(f"Warning: Cython compute_zobrist_cy échoué: {e}. Fallback Python.")
-                # Continue avec Python
 
         # --- Fallback Python ---
         h = np.uint64(0)
@@ -901,18 +1019,18 @@ class BackgammonGame:
         h ^= RND_TURN[0] if self.current_player == 'w' else RND_TURN[1]
         return h
 
-# --- Fonctions utilitaires (wrappers) ---
+# --- Fonctions wrappers ---
 
-def _evaluate_position_heuristic(game_state: BackgammonGame, player_to_evaluate: str, weights: HeuristicWeights) -> float:
+'''def _evaluate_position_heuristic(game_state: BackgammonGame, player_to_evaluate: str, weights: HeuristicWeights) -> float:
     """ Wrapper pour l'appel à la méthode statique d'heuristique. """
-    return BackgammonGame.evaluate_position_heuristic(game_state, player_to_evaluate, weights)
+    return BackgammonGame.evaluate_position_heuristic(game_state, player_to_evaluate, weights)'''
 
 def evaluate_position_hybrid(game_state: "BackgammonGame", player_to_evaluate: str) -> float:
     """ Combine l'heuristique et le réseau neuronal (si disponible). """
     # 1. Score Heuristique
     phase = game_state.determine_game_phase()
     weights = PHASE_WEIGHTS.get(phase, MIDGAME_WEIGHTS)
-    h_val = _evaluate_position_heuristic(game_state, player_to_evaluate, weights)
+    h_val = game_state.evaluate_position_heuristic(player_to_evaluate, weights)
 
     # 2. Score Réseau Neuronal (si chargé et pondéré)
     nn_val = 0.0
@@ -1017,7 +1135,7 @@ def minimax(game: "BackgammonGame", depth: int,
                 # Élagage Alpha-Beta pour CE lancer de dé
                 if beta <= alpha: break
 
-        # Accumule le score pour ce lancer (attention aux infinis)
+        # Accumule le score pour ce lancer
         if best_eval_for_this_roll != float("-inf") and best_eval_for_this_roll != float("inf"):
              accumulated_score += best_eval_for_this_roll; num_samples_processed += 1
         elif no_move_possible:
@@ -1033,9 +1151,6 @@ def minimax(game: "BackgammonGame", depth: int,
         else: avg_score = accumulated_score / num_samples_processed
 
     TT[key] = avg_score # Stocke le résultat moyen
-
-    # Flush batch NN si nécessaire (plutôt à la fin de select_ai_move)
-    # if NET and BATCH_BUF and depth == MAX_DEPTH -1 : _flush_batch()
 
     return avg_score
 
@@ -1068,14 +1183,14 @@ def generate_possible_next_states_with_sequences(
 
         # Étape récursive: Essaye chaque coup légal possible
         played_move_in_iteration = False
-        processed_singles_this_level = set() # Évite double traitement si même coup possible avec 2 dés identiques
+        processed_singles_this_level = set()
 
-        temp_dice = dice_remaining.copy() # Travaille sur une copie des dés restants
+        temp_dice = dice_remaining.copy()
 
         for die in temp_dice: # Pour chaque dé restant
             moves_for_this_die = start_state._get_single_moves_for_die(player, die, start_state) # Coups possibles avec CE dé
             for move in moves_for_this_die:
-                move_key = (move[0], move[1], die) # Clé unique (coup + dé utilisé)
+                move_key = (move[0], move[1], die) # (coup + dé utilisé)
 
                 # Vérifie si ce coup est légal MAINTENANT et pas déjà traité à ce niveau pour ce dé
                 if move in current_legal_singles and move_key not in processed_singles_this_level:
@@ -1092,11 +1207,10 @@ def generate_possible_next_states_with_sequences(
                              # Met à jour état candidat (dés/coups) pour la récursion
                              next_state_candidate.dice = next_dice
                              next_state_candidate.available_moves = next_state_candidate.get_legal_actions()
-                             # Appel récursif
                              find_sequences(next_state_candidate, next_dice, current_sequence + [move])
                          except ValueError:
                              print(f"Erreur: Dé {die} non trouvé dans {dice_remaining} pour DFS coup {move}")
-                             continue # Erreur logique, on saute
+                             continue # Erreur logique, bim boum, on saute
 
         # Si on avait des dés mais aucun coup n'a pu être joué à cette étape -> état final valide
         if not played_move_in_iteration and dice_remaining:
@@ -1193,7 +1307,6 @@ def select_ai_move(game: "BackgammonGame", dice: Tuple[int, ...], ai_player: str
     best_score = float("-inf"); optimal_resulting_state = None; optimal_sequence = []
     opponent_player = 'b' if ai_player == 'w' else 'w'
     alpha_init, beta_init = float("-inf"), float("inf")
-    # print(f"AI Debug: Évaluation de {len(possible_outcomes)} issues pour dé {dice}...") # Debug
 
     for next_state, sequence in possible_outcomes:
         # Évalue l'état APRÈS la séquence IA, du point de vue de l'adversaire (depth-1)
@@ -1201,21 +1314,18 @@ def select_ai_move(game: "BackgammonGame", dice: Tuple[int, ...], ai_player: str
             next_state, MAX_DEPTH - 1, opponent_player, # Adversaire joue ensuite
             ai_player, alpha_init, beta_init # Mais l'IA maximise toujours
         )
-        # seq_str = ", ".join([f"{s}/{d}" for s, d in sequence]) if sequence else "PASS" # Debug
-        # print(f"  Sequence: [{seq_str}] -> Score: {score_for_state:.4f}") # Debug
 
         # 3. Choisit l'issue avec le meilleur score
         if score_for_state > best_score:
             best_score = score_for_state; optimal_resulting_state = next_state; optimal_sequence = sequence
 
-    # Fallback si aucune issue choisie (ne devrait pas arriver si outcomes existe)
+    # Fallback inutile, bon au cas où...
     if optimal_resulting_state is None:
         if possible_outcomes:
              optimal_resulting_state = possible_outcomes[0][0]; optimal_sequence = possible_outcomes[0][1]
         else: # Doit être capturé plus tôt
              optimal_resulting_state = game.copy(); optimal_sequence = []
 
-    # Flush batch NN final
     _flush_batch()
 
     # Retourne la meilleure séquence et l'état résultant (dés/coups vidés)
@@ -1244,7 +1354,6 @@ def select_ai_move_nn_only(game: "BackgammonGame", dice: Tuple[int, ...], ai_pla
         no_move_state = game.copy(); no_move_state.dice = []; no_move_state.available_moves = []
         return [], no_move_state
 
-    # print(f"AI (NN-Only) Debug: Évaluation {len(possible_outcomes)} issues pour dé {dice} via NN...") # Debug
 
     for next_state, sequence in possible_outcomes:
         try:
@@ -1252,15 +1361,12 @@ def select_ai_move_nn_only(game: "BackgammonGame", dice: Tuple[int, ...], ai_pla
                 t = _tensor_for_player(next_state, ai_player) # Tenseur pour l'IA
                 score_for_state = NET(t.unsqueeze(0)).item() # Score NN direct
 
-            # seq_str = ", ".join([f"{s}/{d}" for s, d in sequence]) if sequence else "PASS" # Debug
-            # print(f"  Sequence: [{seq_str}] -> NN Score: {score_for_state:.4f}") # Debug
-
             # 3. Choisit l'issue avec le meilleur score NN
             if score_for_state > best_score:
                 best_score = score_for_state; optimal_resulting_state = next_state; optimal_sequence = sequence
         except Exception as e:
             print(f"AI ERREUR: Échec éval NN pour séquence {sequence}: {e}")
-            continue # Ignore cette issue
+            continue # Ignoré
 
     # Fallback
     if optimal_resulting_state is None:
@@ -1268,9 +1374,6 @@ def select_ai_move_nn_only(game: "BackgammonGame", dice: Tuple[int, ...], ai_pla
              optimal_resulting_state = possible_outcomes[0][0]; optimal_sequence = possible_outcomes[0][1]
         else:
              optimal_resulting_state = game.copy(); optimal_sequence = []
-
-    # seq_str_chosen = ", ".join([f"{s}/{d}" for s, d in optimal_sequence]) if optimal_sequence else "PASS" # Debug
-    # print(f"AI (NN-Only) Debug: Séquence choisie: [{seq_str_chosen}] avec score NN {best_score:.4f}") # Debug
 
     # Retourne meilleure séquence et état résultant (dés/coups vidés)
     final_state = optimal_resulting_state.copy()
@@ -1309,8 +1412,12 @@ def main_play_vs_ai():
         player_symbol = 'O' if game.current_player == 'w' else 'X'
 
         current_phase = game.determine_game_phase()
-        os.system('cls' if os.name == 'nt' else 'clear') # Nettoie écran
-        print("\n" + "=" * 25 + f" Tour {turn_count}: {player_name} ({player_symbol}) " + "=" * 25)
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+        message = f" Tour {turn_count}: {player_name} ({player_symbol}) "
+        total_length = 46
+        stars = (total_length - len(message)) // 2
+        print("\n" + "=" * stars + message + "=" * (total_length - stars - len(message)))
 
         # --- Lancer de Dés et Affichage ---
         current_dice_roll = game.roll_dice() # Lance et met à jour game.dice/available_moves
@@ -1340,7 +1447,7 @@ def main_play_vs_ai():
                 max_moves_possible = len(original_dice_for_turn)
 
                 while game.dice and game.available_moves: # Tant que dés et coups possibles
-                    print("\n" + '-' * 40)
+                    print("\n" + '=' * 46)
                     print(f"   Dés restants: {game.dice}")
                     sorted_available = sorted(game.available_moves, key=lambda m: (str(m[0]), str(m[1])))
                     available_str = ", ".join([f"{s}/{d}" for s, d in sorted_available])
@@ -1363,7 +1470,11 @@ def main_play_vs_ai():
                             # --- Réaffiche après coup réussi ---
                             current_phase = game.determine_game_phase()
                             os.system('cls' if os.name == 'nt' else 'clear')
-                            print("\n" + "=" * 20 + f" Tour {turn_count}: Votre Tour ({player_symbol}) - Coup {moves_made_count}/{max_moves_possible} " + "=" * 20)
+
+                            message = f" Tour {turn_count}: Votre Tour ({player_symbol}) - Coup {moves_made_count}/{max_moves_possible} "
+                            total_length = 46
+                            stars = (total_length - len(message)) // 2
+                            print("\n" + "=" * stars + message + "=" * (total_length - stars - len(message)))
 
                             # Affiche avec la séquence partielle en cours (pour surlignage)
                             temp_display_game = game.copy()
@@ -1409,7 +1520,7 @@ def main_play_vs_ai():
                 details_msg = f"   (IA {player_symbol} Mode={AI_MODE}"
                 if AI_MODE == "MINIMAX": details_msg += f" Prof={MAX_DEPTH}, Samples={NUM_DICE_SAMPLES}"
                 details_msg += ")"
-                print(details_msg)
+                #print(details_msg)
 
                 ai_start_time = time.time()
                 dice_for_ai = tuple(game.dice) # Dés du lancer pour l'IA
@@ -1438,9 +1549,14 @@ def main_play_vs_ai():
                 # --- Affiche résultat tour IA ---
                 current_phase = game.determine_game_phase()
                 os.system('cls' if os.name == 'nt' else 'clear')
-                print("\n" + "=" * 25 + f" Tour {turn_count}: Tour de l'IA ({player_symbol}) - Terminé " + "=" * 25)
 
-                # Met à jour séquence officielle pour surlignage au tour suivant
+                message = f" Tour {turn_count}: Tour de l'IA ({player_symbol}) - Terminé "
+                total_length = 46
+                stars = (total_length - len(message)) // 2
+                print("\n" + "=" * stars + message + "=" * (total_length - stars - len(message)))
+
+
+                # Met à jour séquence pour surlignage au tour suivant
                 if ai_player == 'w': game.white_last_turn_sequence = played_sequence_this_turn; game.black_last_turn_sequence = []
                 else: game.black_last_turn_sequence = played_sequence_this_turn; game.white_last_turn_sequence = []
 
