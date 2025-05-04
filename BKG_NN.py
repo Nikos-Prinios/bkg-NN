@@ -60,7 +60,7 @@ print(f"- Utilisation du device : {DEVICE}")
 # ---------------------------------------------------------------------------
 SHOW_STATS          = False      # Afficher les stats de performance ?
 MAX_DEPTH           = 4          # Profondeur de recherche minimax
-NUM_DICE_SAMPLES    = 12         # Nb. de lancers simulés (nœuds chance)
+NUM_DICE_SAMPLES    = 21         # Nb. de lancers simulés (nœuds chance)
 NN_CHECKPOINT       = "minimax_helper.pt" # Fichier du modèle NN
 NN_WEIGHT           = 0.50       # Poids du NN vs Heuristique (0=Heuristique, 1=NN)
 BOARD_SIZE          = 24
@@ -315,16 +315,16 @@ ENDGAME_WEIGHTS = HeuristicWeights(
     STACKING_PENALTY_FACTOR=0.0, BUILDER_BONUS=0.1, # Peu utiles
     # --- Blots ---
     DIRECT_SHOT_PENALTY_FACTOR=-2.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.2,
-    HIT_FAR_BLOT_PENALTY_MULTIPLIER=1.8, STRATEGIC_BLOT_PENALTY_REDUCTION=0.7, # Moins de réduction stratégique
+    HIT_FAR_BLOT_PENALTY_MULTIPLIER=1.8, STRATEGIC_BLOT_PENALTY_REDUCTION=1,
     # --- Situationnel / Contrôle ---
     MIDGAME_HOME_PRISON_BONUS=0.0, # Non pertinent
     CLOSEOUT_BONUS=10.0, # Toujours utile si ça arrive
     # --- Pénalités spécifiques Phase / Course ---
     FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.0, # Remplacé par les suivants
-    ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-1.5, # Gardé
-    ENDGAME_STRAGGLER_PENALTY_FACTOR=-1.0, # Ajouté
+    ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-3.0,
+    ENDGAME_STRAGGLER_PENALTY_FACTOR=-3.0, # Ajouté
     # --- Mode Course ---
-    RACE_MODE_FACTOR=4.0, RACE_MODE_OTHER_FACTOR_REDUCTION=0.1 # Valeurs agressives
+    RACE_MODE_FACTOR=4.0, RACE_MODE_OTHER_FACTOR_REDUCTION=0.0 # Valeurs agressives
 )
 PHASE_WEIGHTS = {"OPENING": OPENING_WEIGHTS, "MIDGAME": MIDGAME_WEIGHTS, "ENDGAME": ENDGAME_WEIGHTS}
 
@@ -1135,7 +1135,7 @@ class BackgammonGame:
                         num_checkers = abs(board[i])
                         # Calculer la distance minimale pour rentrer dans le jan
                         distance_to_home = abs(home_board_entry_pos - checker_pos)
-                        # Appliquer la pénalité
+                        # Appliquer la pénalité (le facteur est déjà négatif)
                         penalty_for_pos = num_checkers * distance_to_home * weights.ENDGAME_STRAGGLER_PENALTY_FACTOR
                         endgame_straggler_penalty += penalty_for_pos
                         # Augmenter la pénalité si très en retard dans la course
@@ -1487,7 +1487,7 @@ def select_ai_move(game: "BackgammonGame", dice: Tuple[int, ...], ai_player: str
         if score_for_state > best_score:
             best_score = score_for_state; optimal_resulting_state = next_state; optimal_sequence = sequence
 
-    # Fallback inutile, bon au cas où...?
+    # Fallback inutile, bon au cas où...
     if optimal_resulting_state is None:
         if possible_outcomes:
              optimal_resulting_state = possible_outcomes[0][0]; optimal_sequence = possible_outcomes[0][1]
@@ -1549,7 +1549,7 @@ def select_ai_move_nn_only(game: "BackgammonGame", dice: Tuple[int, ...], ai_pla
     return optimal_sequence, final_state
 
 # ---------------------------------------------------------------------------
-# 10) BOUCLE PRINCIPALE
+# 10) BOUCLE PRINCIPALE DU JEU
 # ---------------------------------------------------------------------------
 def main_play_vs_ai():
     """ Boucle principale du jeu Humain vs IA hybride. """
@@ -1671,7 +1671,7 @@ def main_play_vs_ai():
                 profiler = cProfile.Profile()
                 profiler.enable()
 
-                # Catégorie de commentaires basée sur état
+                # Catégorie de phrase basée sur état
                 category = "relative égalité"; phase = game.current_phase
                 if phase == "OPENING": category = "début de partie"
                 elif phase == "ENDGAME": category = "course vers la sortie"
@@ -1682,7 +1682,7 @@ def main_play_vs_ai():
                     if pip_diff_ai > ADVANTAGE_THRESHOLD: category = "l'IA a l'avantage"
                     elif pip_diff_ai < DISADVANTAGE_THRESHOLD: category = "l'IA est en difficulté"
 
-                thinking_phrase = pm.get(category) # Phrase marrante
+                thinking_phrase = pm.get(category) # Phrase d'ambiance
                 print(f"\n   {thinking_phrase}")
 
                 details_msg = f"   (IA {player_symbol} Mode={AI_MODE}"
