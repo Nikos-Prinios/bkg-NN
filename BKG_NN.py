@@ -212,32 +212,120 @@ def _tensor_for_player(game: 'BackgammonGame', player: str) -> torch.Tensor:
 # ---------------------------------------------------------------------------
 @dataclass
 class HeuristicWeights:
-    # Facteurs de poids pour différents aspects du jeu
+    # --- Facteurs de base ---
     PIP_SCORE_FACTOR: float = 1.0
     OFF_SCORE_FACTOR: float = 10.0
     HIT_BONUS: float = 30.0
     BAR_PENALTY: float = -20.0
+
+    # --- Structure: Points, Ancres ---
     POINT_BONUS: float = 2.0
     HOME_BOARD_POINT_BONUS: float = 3.0
     INNER_HOME_POINT_BONUS: float = 2.0
     ANCHOR_BONUS: float = 5.0
+    FIVE_POINT_BONUS: float = 0.0 # Défaut = 0.0
+
+    # --- Structure: Primes ---
     PRIME_BASE_BONUS: float = 4.0
+    SIX_PRIME_BONUS: float = 0.0 # Défaut = 0.0
+    TRAPPED_CHECKER_BONUS: float = 8.0
+
+    # --- Structure: Distribution ---
+    STACKING_PENALTY_FACTOR: float = 0.0 # Défaut = 0.0 (Facteur négatif dans instances)
+    BUILDER_BONUS: float = 0.0 # Défaut = 0.0
+
+    # --- Blots ---
     DIRECT_SHOT_PENALTY_FACTOR: float = -1.5
     BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR: float = 0.5
-    AGGRESSION_THRESHOLD: float = 10.0
-    MIDGAME_HOME_PRISON_BONUS: float = 20.0
-    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR: float = 0.0
-    TRAPPED_CHECKER_BONUS: float = 8.0
-    ENDGAME_BACK_CHECKER_PENALTY_FACTOR: float = -1.5
-    STRATEGIC_BLOT_PENALTY_REDUCTION: float = 0.0
-    RACE_MODE_FACTOR: float = 1.0  # Facteur multiplicateur pour le pip en mode course
-    RACE_MODE_OTHER_FACTOR_REDUCTION: float = 0.1  # Facteur pour réduire les autres bonus/malus en course (ex: 0.1 = 90% de réduction)
+    HIT_FAR_BLOT_PENALTY_MULTIPLIER: float = 1.0 # Défaut = 1.0 (pas de majoration)
+    STRATEGIC_BLOT_PENALTY_REDUCTION: float = 1.0 # Défaut = 1.0 (pas de réduction)
+
+    # --- Situationnel / Contrôle ---
+    MIDGAME_HOME_PRISON_BONUS: float = 0.0 # Défaut = 0.0
+    CLOSEOUT_BONUS: float = 0.0 # Défaut = 0.0
+
+    # --- Pénalités spécifiques Phase / Course ---
+    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR: float = 0.0 # Défaut = 0.0
+    ENDGAME_BACK_CHECKER_PENALTY_FACTOR: float = 0.0 # Défaut = 0.0
+    ENDGAME_STRAGGLER_PENALTY_FACTOR: float = 0.0 # Défaut = 0.0
+
+    # --- Mode Course ---
+    RACE_MODE_FACTOR: float = 1.0 # Défaut = 1.0 (pas d'effet)
+    RACE_MODE_OTHER_FACTOR_REDUCTION: float = 1.0 # Défaut = 1.0 (pas de réduction)
 
 # --- Poids différents selon la phase de jeu ---
-OPENING_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=0.8, OFF_SCORE_FACTOR=5.0, HIT_BONUS=35.0, BAR_PENALTY=-25.0, POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=2.0, INNER_HOME_POINT_BONUS=1.0, ANCHOR_BONUS=8.0, PRIME_BASE_BONUS=5.0, DIRECT_SHOT_PENALTY_FACTOR=-1.0, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.6, AGGRESSION_THRESHOLD=12.0, MIDGAME_HOME_PRISON_BONUS=15.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.5, TRAPPED_CHECKER_BONUS=6.0, ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-0.0, STRATEGIC_BLOT_PENALTY_REDUCTION = 0.4)
-MIDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=1.2, OFF_SCORE_FACTOR=15.0, HIT_BONUS=40.0, BAR_PENALTY=-25.0, POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=5.0, INNER_HOME_POINT_BONUS=3.0, ANCHOR_BONUS=3.0, PRIME_BASE_BONUS=5.0, DIRECT_SHOT_PENALTY_FACTOR=-1.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.5, AGGRESSION_THRESHOLD=15.0, MIDGAME_HOME_PRISON_BONUS=20.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.7, TRAPPED_CHECKER_BONUS=8.0, ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-0.0, STRATEGIC_BLOT_PENALTY_REDUCTION = 0.3)
-ENDGAME_WEIGHTS = HeuristicWeights(PIP_SCORE_FACTOR=3.0, OFF_SCORE_FACTOR=30.0, HIT_BONUS=50.0, BAR_PENALTY=-50.0, POINT_BONUS=0.5, HOME_BOARD_POINT_BONUS=0.5, INNER_HOME_POINT_BONUS=0.2, ANCHOR_BONUS=1.0, PRIME_BASE_BONUS=1.0, DIRECT_SHOT_PENALTY_FACTOR=-2.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.2, AGGRESSION_THRESHOLD=5.0, MIDGAME_HOME_PRISON_BONUS=0.0, FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.0, TRAPPED_CHECKER_BONUS=2.0,ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-1.5,STRATEGIC_BLOT_PENALTY_REDUCTION = 0.7, RACE_MODE_FACTOR = 2.0,RACE_MODE_OTHER_FACTOR_REDUCTION = 0.1)
+OPENING_WEIGHTS = HeuristicWeights(
+    # --- Facteurs de base ---
+    PIP_SCORE_FACTOR=0.8, OFF_SCORE_FACTOR=5.0, HIT_BONUS=35.0, BAR_PENALTY=-25.0,
+    # --- Structure: Points, Ancres ---
+    POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=2.0, INNER_HOME_POINT_BONUS=1.0,
+    ANCHOR_BONUS=8.0, FIVE_POINT_BONUS=5.0, # Important tôt
+    # --- Structure: Primes ---
+    PRIME_BASE_BONUS=5.0, SIX_PRIME_BONUS=10.0, # Très fort si réussi tôt
+    TRAPPED_CHECKER_BONUS=6.0,
+    # --- Structure: Distribution ---
+    STACKING_PENALTY_FACTOR=-0.5, BUILDER_BONUS=1.5, # Encourager flexibilité
+    # --- Blots ---
+    DIRECT_SHOT_PENALTY_FACTOR=-1.0, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.6,
+    HIT_FAR_BLOT_PENALTY_MULTIPLIER=1.2, STRATEGIC_BLOT_PENALTY_REDUCTION=0.4,
+    # --- Situationnel / Contrôle ---
+    MIDGAME_HOME_PRISON_BONUS=15.0, CLOSEOUT_BONUS=5.0, # Moins probable mais utile
+    # --- Pénalités spécifiques Phase / Course ---
+    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=-0.5, # CORRIGÉ SIGNE
+    ENDGAME_BACK_CHECKER_PENALTY_FACTOR=0.0, # Non pertinent
+    ENDGAME_STRAGGLER_PENALTY_FACTOR=0.0, # Non pertinent
+    # --- Mode Course ---
+    RACE_MODE_FACTOR=1.0, RACE_MODE_OTHER_FACTOR_REDUCTION=1.0
+)
 
+MIDGAME_WEIGHTS = HeuristicWeights(
+    # --- Facteurs de base ---
+    PIP_SCORE_FACTOR=1.2, OFF_SCORE_FACTOR=15.0, HIT_BONUS=40.0, BAR_PENALTY=-25.0,
+    # --- Structure: Points, Ancres ---
+    POINT_BONUS=3.0, HOME_BOARD_POINT_BONUS=5.0, INNER_HOME_POINT_BONUS=3.0,
+    ANCHOR_BONUS=3.0, FIVE_POINT_BONUS=6.0, # Toujours crucial
+    # --- Structure: Primes ---
+    PRIME_BASE_BONUS=5.0, SIX_PRIME_BONUS=15.0, # Valeur maximale ici
+    TRAPPED_CHECKER_BONUS=8.0,
+    # --- Structure: Distribution ---
+    STACKING_PENALTY_FACTOR=-0.7, BUILDER_BONUS=1.0,
+    # --- Blots ---
+    DIRECT_SHOT_PENALTY_FACTOR=-1.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.5,
+    HIT_FAR_BLOT_PENALTY_MULTIPLIER=1.5, STRATEGIC_BLOT_PENALTY_REDUCTION=0.3, # Forte réduction stratégique
+    # --- Situationnel / Contrôle ---
+    MIDGAME_HOME_PRISON_BONUS=20.0, CLOSEOUT_BONUS=15.0, # Très important
+    # --- Pénalités spécifiques Phase / Course ---
+    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=-0.7, # CORRIGÉ SIGNE
+    ENDGAME_BACK_CHECKER_PENALTY_FACTOR=0.0, # Non pertinent
+    ENDGAME_STRAGGLER_PENALTY_FACTOR=0.0, # Non pertinent
+    # --- Mode Course ---
+    RACE_MODE_FACTOR=1.0, RACE_MODE_OTHER_FACTOR_REDUCTION=1.0,
+)
+
+ENDGAME_WEIGHTS = HeuristicWeights(
+    # --- Facteurs de base ---
+    PIP_SCORE_FACTOR=3.0, OFF_SCORE_FACTOR=30.0, HIT_BONUS=50.0, BAR_PENALTY=-50.0,
+    # --- Structure: Points, Ancres ---
+    POINT_BONUS=0.5, HOME_BOARD_POINT_BONUS=0.5, INNER_HOME_POINT_BONUS=0.2, # Moins importants
+    ANCHOR_BONUS=0.1, FIVE_POINT_BONUS=1.0, # Garde un peu de valeur
+    # --- Structure: Primes ---
+    PRIME_BASE_BONUS=1.0, SIX_PRIME_BONUS=0.0, # Normalement cassées
+    TRAPPED_CHECKER_BONUS=0.5, # Moins pertinent
+    # --- Structure: Distribution ---
+    STACKING_PENALTY_FACTOR=0.0, BUILDER_BONUS=0.1, # Peu utiles
+    # --- Blots ---
+    DIRECT_SHOT_PENALTY_FACTOR=-2.5, BLOT_PENALTY_REDUCTION_IF_OPP_ON_BAR=0.2,
+    HIT_FAR_BLOT_PENALTY_MULTIPLIER=1.8, STRATEGIC_BLOT_PENALTY_REDUCTION=0.7, # Moins de réduction stratégique
+    # --- Situationnel / Contrôle ---
+    MIDGAME_HOME_PRISON_BONUS=0.0, # Non pertinent
+    CLOSEOUT_BONUS=10.0, # Toujours utile si ça arrive
+    # --- Pénalités spécifiques Phase / Course ---
+    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=0.0, # Remplacé par les suivants
+    ENDGAME_BACK_CHECKER_PENALTY_FACTOR=-1.5, # Gardé
+    ENDGAME_STRAGGLER_PENALTY_FACTOR=-1.0, # Ajouté
+    # --- Mode Course ---
+    RACE_MODE_FACTOR=4.0, RACE_MODE_OTHER_FACTOR_REDUCTION=0.1 # Valeurs agressives
+)
 PHASE_WEIGHTS = {"OPENING": OPENING_WEIGHTS, "MIDGAME": MIDGAME_WEIGHTS, "ENDGAME": ENDGAME_WEIGHTS}
 
 YELLOW = "\033[33m"; RESET = "\033[0m"
@@ -1031,6 +1119,29 @@ class BackgammonGame:
                 closeout_bonus_total = 0.0
                 back_checker_penalty_midgame *= reduction_factor
                 endgame_back_checker_penalty *= reduction_factor
+
+            # --- 7ter. Pénalité pour Traînards en Endgame ---
+            endgame_straggler_penalty = 0.0
+            current_phase_for_eval = self.determine_game_phase()
+            if current_phase_for_eval == 'ENDGAME' and hasattr(weights,
+                                                               'ENDGAME_STRAGGLER_PENALTY_FACTOR') and weights.ENDGAME_STRAGGLER_PENALTY_FACTOR != 0.0:
+                # Zone "hors du jan intérieur" pour le joueur
+                outside_indices = range(0, 18) if player_to_evaluate == 'w' else range(6, 24)
+                home_board_entry_pos = 19 if player_to_evaluate == 'w' else 6
+
+                for i in outside_indices:
+                    if board[i] * p_sign > 0:  # Trouvé un pion traînard du joueur
+                        checker_pos = i + 1
+                        num_checkers = abs(board[i])
+                        # Calculer la distance minimale pour rentrer dans le jan
+                        distance_to_home = abs(home_board_entry_pos - checker_pos)
+                        # Appliquer la pénalité (le facteur est déjà négatif)
+                        penalty_for_pos = num_checkers * distance_to_home * weights.ENDGAME_STRAGGLER_PENALTY_FACTOR
+                        endgame_straggler_penalty += penalty_for_pos
+                        # Augmenter la pénalité si très en retard dans la course
+                        pip_diff = o_pip - p_pip
+                        if pip_diff < -50:
+                            endgame_straggler_penalty += penalty_for_pos * 0.5
 
             # --- 8. Score Total Combiné ---
         total_score = (
