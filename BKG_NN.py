@@ -1135,7 +1135,7 @@ class BackgammonGame:
                         num_checkers = abs(board[i])
                         # Calculer la distance minimale pour rentrer dans le jan
                         distance_to_home = abs(home_board_entry_pos - checker_pos)
-                        # Appliquer la pénalité (le facteur est déjà négatif)
+                        # Appliquer la pénalité
                         penalty_for_pos = num_checkers * distance_to_home * weights.ENDGAME_STRAGGLER_PENALTY_FACTOR
                         endgame_straggler_penalty += penalty_for_pos
                         # Augmenter la pénalité si très en retard dans la course
@@ -1487,7 +1487,7 @@ def select_ai_move(game: "BackgammonGame", dice: Tuple[int, ...], ai_player: str
         if score_for_state > best_score:
             best_score = score_for_state; optimal_resulting_state = next_state; optimal_sequence = sequence
 
-    # Fallback inutile, bon au cas où...
+    # Fallback inutile, bon au cas où...?
     if optimal_resulting_state is None:
         if possible_outcomes:
              optimal_resulting_state = possible_outcomes[0][0]; optimal_sequence = possible_outcomes[0][1]
@@ -1549,7 +1549,7 @@ def select_ai_move_nn_only(game: "BackgammonGame", dice: Tuple[int, ...], ai_pla
     return optimal_sequence, final_state
 
 # ---------------------------------------------------------------------------
-# 10) BOUCLE PRINCIPALE DU JEU
+# 10) BOUCLE PRINCIPALE
 # ---------------------------------------------------------------------------
 def main_play_vs_ai():
     """ Boucle principale du jeu Humain vs IA hybride. """
@@ -1671,7 +1671,7 @@ def main_play_vs_ai():
                 profiler = cProfile.Profile()
                 profiler.enable()
 
-                # Catégorie de phrase basée sur état
+                # Catégorie de commentaires basée sur état
                 category = "relative égalité"; phase = game.current_phase
                 if phase == "OPENING": category = "début de partie"
                 elif phase == "ENDGAME": category = "course vers la sortie"
@@ -1682,7 +1682,7 @@ def main_play_vs_ai():
                     if pip_diff_ai > ADVANTAGE_THRESHOLD: category = "l'IA a l'avantage"
                     elif pip_diff_ai < DISADVANTAGE_THRESHOLD: category = "l'IA est en difficulté"
 
-                thinking_phrase = pm.get(category) # Phrase d'ambiance
+                thinking_phrase = pm.get(category) # Phrase marrante
                 print(f"\n   {thinking_phrase}")
 
                 details_msg = f"   (IA {player_symbol} Mode={AI_MODE}"
