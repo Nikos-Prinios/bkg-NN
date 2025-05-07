@@ -99,15 +99,9 @@ RND_TURN  = np.random.default_rng(314).integers(
            low=0, high=2**63, dtype=np.uint64, size=2)
 
 # ---------------------------------------------------------------------------
-# 3) RÉSEAU NEURONAL
+# 3) MINIMAX
 # ---------------------------------------------------------------------------
-INPUT_DIM  = 54    # Taille de l'entrée du réseau
-HIDDEN     = 256   # Taille des couches cachées
-
-# ---------------------------------------------------------------------------
-# 3) RÉSEAU NEURONAL (Définition alignée sur le script d'entraînement)
-# ---------------------------------------------------------------------------
-class MiniMaxHelper(nn.Module): # Nouveau nom et architecture correcte
+class MiniMaxHelper(nn.Module):
     """ Architecture du réseau neuronal pour l'inférence, alignée sur l'entraînement."""
     def __init__(self,
                  input_dim: int = INPUT_DIM, # Utilise la constante globale
@@ -146,7 +140,7 @@ class MiniMaxHelper(nn.Module): # Nouveau nom et architecture correcte
 _nn_model: MiniMaxHelper | None = None
 
 # ---------------------------------------------------------------------------
-# 8-bis) Table de Transposition (mémoire pour Minimax)
+# Table de Transposition (mémoire pour Minimax)
 # ---------------------------------------------------------------------------
 TT: dict[tuple, float] = {}    # (hash_zobrist, profondeur, joueur) -> score
 
@@ -278,7 +272,7 @@ def _tensor_for_player(game: 'BackgammonGame', player: str) -> torch.Tensor:
     return torch.tensor(t_np, device=DEVICE)
 
 # ---------------------------------------------------------------------------
-# 5) HEURISTIQUE (évaluation rapide de position)
+# 5) HEURISTIQUE
 # ---------------------------------------------------------------------------
 @dataclass
 class HeuristicWeights:
@@ -341,7 +335,7 @@ OPENING_WEIGHTS = HeuristicWeights(
     # --- Situationnel / Contrôle ---
     MIDGAME_HOME_PRISON_BONUS=15.0, CLOSEOUT_BONUS=5.0, # Moins probable mais utile
     # --- Pénalités spécifiques Phase / Course ---
-    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=-0.5, # CORRIGÉ SIGNE
+    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=-0.5,
     ENDGAME_BACK_CHECKER_PENALTY_FACTOR=0.0, # Non pertinent
     ENDGAME_STRAGGLER_PENALTY_FACTOR=0.0, # Non pertinent
     # --- Mode Course ---
@@ -365,7 +359,7 @@ MIDGAME_WEIGHTS = HeuristicWeights(
     # --- Situationnel / Contrôle ---
     MIDGAME_HOME_PRISON_BONUS=20.0, CLOSEOUT_BONUS=15.0, # Très important
     # --- Pénalités spécifiques Phase / Course ---
-    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=-0.7, # CORRIGÉ SIGNE
+    FAR_BEHIND_BACK_CHECKER_PENALTY_FACTOR=-0.7,
     ENDGAME_BACK_CHECKER_PENALTY_FACTOR=0.0, # Non pertinent
     ENDGAME_STRAGGLER_PENALTY_FACTOR=0.0, # Non pertinent
     # --- Mode Course ---
@@ -428,18 +422,18 @@ class BackgammonGame:
     def copy(self):
         """ Crée une copie profonde pour la simulation IA. """
         new_game = object.__new__(BackgammonGame)
-        new_game.board = self.board.copy()  # Copie profonde nécessaire pour numpy array
+        new_game.board = self.board.copy()  # Copie profonde pour numpy array
         new_game.white_bar = self.white_bar
         new_game.black_bar = self.black_bar
         new_game.white_off = self.white_off
         new_game.black_off = self.black_off
         new_game.winner = self.winner
         new_game.current_player = self.current_player
-        new_game.dice = list(self.dice)  # Copie de liste
-        new_game.available_moves = list(self.available_moves)  # Copie de liste
-        new_game.human_player = self.human_player  # Référence ok
-        new_game.ai_player = self.ai_player  # Référence ok
-        new_game.current_phase = self.current_phase  # Copie de string ok
+        new_game.dice = list(self.dice)
+        new_game.available_moves = list(self.available_moves)
+        new_game.human_player = self.human_player
+        new_game.ai_player = self.ai_player
+        new_game.current_phase = self.current_phase
         new_game.white_last_turn_sequence = list(self.white_last_turn_sequence)
         new_game.black_last_turn_sequence = list(self.black_last_turn_sequence)
         return new_game
@@ -1095,7 +1089,7 @@ class BackgammonGame:
                         if board[trap_idx] * o_sign > 0: trapped_count += abs(board[trap_idx])
                     trapped_checker_bonus_total += trapped_count * weights.TRAPPED_CHECKER_BONUS
 
-        # --- 6. Bonus situationnels (Prison, Closeout) (post-scan) ---
+        # --- 6. Bonus (Prison, Closeout) (post-scan) ---
         midgame_prison_bonus = 0.0
         if hasattr(weights, 'MIDGAME_HOME_PRISON_BONUS') and weights.MIDGAME_HOME_PRISON_BONUS != 0.0:
             home_indices = range(18, 24) if player_to_evaluate == 'w' else range(6)
@@ -1221,11 +1215,11 @@ class BackgammonGame:
                 prime_bonus_total + blot_penalty_total +  # Primes et Blots (réduits si race)
                 midgame_prison_bonus + trapped_checker_bonus_total +  # Contrôle / Blocage (réduits si race)
                 back_checker_penalty_midgame + endgame_back_checker_penalty +  # Pénalités phase (réduites si race)
-                builder_bonus_total +  # Nouveau (réduit si race)
-                stacking_penalty_total +  # Nouveau (réduit si race)
-                five_point_bonus_val +  # Nouveau (réduit si race)
-                six_prime_bonus_val +  # Nouveau (réduit si race)
-                closeout_bonus_total  # Nouveau (réduit si race)
+                builder_bonus_total +
+                stacking_penalty_total +
+                five_point_bonus_val +
+                six_prime_bonus_val +
+                closeout_bonus_total
         )
 
         return total_score
