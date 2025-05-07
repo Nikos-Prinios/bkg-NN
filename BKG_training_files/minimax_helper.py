@@ -6,7 +6,7 @@ Entraîne un réseau neuronal léger pour approximer l'équité de GNU Backgammo
 une recherche minimax en élaguant les branches dont l'équité prédite est faible.
 
 Les données sont lues depuis la base de données SQLite produite par
-`parse_to_database.py` (après correction pour stocker 'O'/'X').
+`parse_to_database.py`.
 """
 from __future__ import annotations
 
