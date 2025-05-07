@@ -70,6 +70,11 @@ BATCH_KEYS: list[tuple] = []                     # Clés associées au buffer
 BATCH_SIZE = 256                                 # Taille du buffer NN
 AI_MODE = "MINIMAX"                              # Mode IA: "MINIMAX", "NN_ONLY"
 
+INPUT_DIM = 54                  # Dimension d'entrée fixe
+HIDDEN = 256                  # Dimension cachée utilisée à l'entraînement
+NUM_HIDDEN_LAYERS = 2           # Nombre de couches CACHÉES utilisées à l'entraînement
+DROPOUT_P = 0.1                 # Dropout utilisé à l'entraînement (sera inactif en mode eval)
+OUTPUT_ACTIVATION = "none"      # Activation de sortie utilisée à l'entraînement
 # ---------------------------------------------------------------
 # 2-bis) Table des coups unitaires (src,dst) pré-calculée
 # ---------------------------------------------------------------
@@ -99,28 +104,56 @@ RND_TURN  = np.random.default_rng(314).integers(
 INPUT_DIM  = 54    # Taille de l'entrée du réseau
 HIDDEN     = 256   # Taille des couches cachées
 
-class MiniMaxHelperNet(nn.Module):
-    """ Architecture du réseau neuronal. """
-    def __init__(self, input_dim=INPUT_DIM):
+# ---------------------------------------------------------------------------
+# 3) RÉSEAU NEURONAL (Définition alignée sur le script d'entraînement)
+# ---------------------------------------------------------------------------
+class MiniMaxHelper(nn.Module): # Nouveau nom et architecture correcte
+    """ Architecture du réseau neuronal pour l'inférence, alignée sur l'entraînement."""
+    def __init__(self,
+                 input_dim: int = INPUT_DIM, # Utilise la constante globale
+                 hidden_dim: int = HIDDEN,
+                 num_hidden_layers: int = NUM_HIDDEN_LAYERS,
+                 dropout_p: float = DROPOUT_P,
+                 output_activation: str = OUTPUT_ACTIVATION):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, HIDDEN), nn.ReLU(), # Couche 1
-            nn.Linear(HIDDEN, HIDDEN), nn.ReLU(),    # Couche 2
-            nn.Linear(HIDDEN, 1)                     # Couche de sortie (score)
-        )
-    def forward(self, x): # (N, input_dim) -> (N,1)
-        # Passage des données dans le réseau
-        return self.net(x)
+        layers = []
+        current_dim = input_dim
+        # Couches cachées
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(current_dim, hidden_dim))
+            layers.append(nn.BatchNorm1d(hidden_dim))
+            layers.append(nn.ReLU())
+            if dropout_p > 0:
+                layers.append(nn.Dropout(dropout_p))
+            current_dim = hidden_dim
+        layers.append(nn.Linear(current_dim, 1))
 
-_nn_model: MiniMaxHelperNet | None = None # Cache global du modèle
+        if output_activation == "tanh":
+            layers.append(nn.Tanh())
+
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        is_single_input = False
+        if x.ndim == 1:
+           x = x.unsqueeze(0)
+           is_single_input = True
+        output = self.net(x)
+        output = output.squeeze(-1)
+        if is_single_input:
+             pass
+        return output
+_nn_model: MiniMaxHelper | None = None
 
 # ---------------------------------------------------------------------------
 # 8-bis) Table de Transposition (mémoire pour Minimax)
 # ---------------------------------------------------------------------------
 TT: dict[tuple, float] = {}    # (hash_zobrist, profondeur, joueur) -> score
 
-def _load_nn_model() -> MiniMaxHelperNet | None:
-    """ Charge le modèle NN depuis le fichier checkpoint. """
+# ---------------------------------------------------------------------------
+# Fonction de chargement du modèle (Utilise la nouvelle classe)
+# ---------------------------------------------------------------------------
+def _load_nn_model() -> MiniMaxHelper | None:
     global _nn_model
     if _nn_model is not None:
         return _nn_model
@@ -130,19 +163,40 @@ def _load_nn_model() -> MiniMaxHelperNet | None:
 
     print(f"Chargement du modèle NN '{NN_CHECKPOINT}' (Input: {INPUT_DIM})")
     try:
-        _nn_model = MiniMaxHelperNet(input_dim=INPUT_DIM)
-        _nn_model.load_state_dict(torch.load(NN_CHECKPOINT, map_location=DEVICE))
+        _nn_model = MiniMaxHelper(
+            input_dim=INPUT_DIM,
+            hidden_dim=HIDDEN,
+            num_hidden_layers=NUM_HIDDEN_LAYERS,
+            dropout_p=DROPOUT_P,
+            output_activation=OUTPUT_ACTIVATION
+        )
+
+        state_dict = torch.load(NN_CHECKPOINT, map_location=DEVICE)
+        _nn_model.load_state_dict(state_dict)
         _nn_model.to(DEVICE)
-        _nn_model.eval() # Mode évaluation
-        print("Modèle NN chargé.")
+        _nn_model.eval()
+        print("Modèle NN chargé et prêt pour l'inférence.")
         return _nn_model
-    except Exception as e:
-        print(f"❌ Erreur chargement modèle {NN_CHECKPOINT}: {e}")
-        print(f"   Vérifiez l'architecture (INPUT_DIM={INPUT_DIM}).")
+    except FileNotFoundError:
+         print(f"❌ Erreur: Fichier modèle {NN_CHECKPOINT} non trouvé.")
+         print("   Utilisation de l'heuristique seule.")
+         return None
+    except RuntimeError as e: # Attrape spécifiquement les erreurs de chargement state_dict
+        print(f"❌ Erreur chargement state_dict modèle {NN_CHECKPOINT}: {e}")
+        print(f"   Cela indique généralement une INCOHÉRENCE D'ARCHITECTURE entre l'entraînement et ici.")
+        print(f"   Vérifiez les constantes : INPUT_DIM={INPUT_DIM}, HIDDEN={HIDDEN}, NUM_HIDDEN_LAYERS={NUM_HIDDEN_LAYERS}, etc.")
         print("   Utilisation de l'heuristique seule.")
+        import traceback
+        traceback.print_exc()
+        return None
+    except Exception as e: # Attrape les autres erreurs potentielles
+        print(f"❌ Erreur chargement modèle {NN_CHECKPOINT}: {e}")
+        print("   Utilisation de l'heuristique seule.")
+        import traceback
+        traceback.print_exc()
         return None
 
-NET = _load_nn_model() # Chargement au démarrage
+NET = _load_nn_model()
 
 # Couleur CLI
 YEL = "\033[33m"; RESET = "\033[0m"
@@ -153,30 +207,46 @@ def color(s, clr): return f"{clr}{s}{RESET}" # Utilitaire couleur
 # ---------------------------------------------------------------------------
 def state_to_tensor(game: 'BackgammonGame') -> torch.Tensor:
     """
-    Encode l'état du jeu en tenseur (54 features) pour le NN.
-        0-23: Pions blancs (nb / 15.0)
-       24-47: Pions noirs (nb / 15.0)
-       48-51: Bar/Off blancs & noirs (/ 15.0)
-          52: Tour (1.0=Blanc, 0.0=Noir)
-          53: Diff Pip normalisée ((pip_N - pip_B) / 100.0)
+    Encode l'état du jeu en tenseur 54 features pour le NN.
+    Convention BKG_2_05: Blancs='w'(+), Noirs='b'(-).
+    Tenseur: feats[0-23]=Blancs, feats[24-47]=Noirs, feat[52]=Tour(1.0=Blanc)
     """
-    whites = np.clip(game.board, 0, NUM_CHECKERS) / NUM_CHECKERS
-    blacks = np.clip(-game.board, 0, NUM_CHECKERS) / NUM_CHECKERS
-    extras = [
-        game.white_bar / NUM_CHECKERS, game.black_bar / NUM_CHECKERS,
-        game.white_off / NUM_CHECKERS, game.black_off / NUM_CHECKERS
-    ]
-    turn = [1.0 if game.current_player == 'w' else 0.0]
+    # Board: BKG_2_05 stocke Blancs (+), Noirs (-)
+    white_checkers_on_board_norm = np.clip(game.board, 0, 15.0) / 15.0
+    black_checkers_on_board_norm = np.clip(-game.board, 0, 15.0) / 15.0
+    board_features = np.concatenate([white_checkers_on_board_norm, black_checkers_on_board_norm])
+
+    # Bar/Off
+    bar_off_features = np.array([
+        game.white_bar / 15.0, # 48: white_bar
+        game.black_bar / 15.0, # 49: black_bar
+        game.white_off / 15.0, # 50: white_off
+        game.black_off / 15.0, # 51: black_off
+    ], dtype=np.float32)
+
+    # Turn feature: 1.0 pour Blanc ('w'), 0.0 pour Noir ('b')
+    turn_feature_val = 1.0 if game.current_player == 'w' else 0.0
+    turn_feature_np = np.array([turn_feature_val], dtype=np.float32) # 52: turn
+
+    # Pip difference feature: (pip_noir - pip_blanc) / 100.0
+    # Utilise la méthode de calcul de pip de la classe (potentiellement Cython)
     pip_w = game.calculate_pip('w')
     pip_b = game.calculate_pip('b')
-    pipd = [(pip_b - pip_w) / 100.0]
+    pip_diff_val = (pip_b - pip_w) / 100.0
+    pip_diff_feature = np.array([pip_diff_val], dtype=np.float32) # 53: pip_diff
 
-    v = np.concatenate([whites, blacks, np.array(extras), np.array(turn), np.array(pipd)])
+    # Concatenate all features
+    final_features = np.concatenate([
+        board_features,      # Features 0-47
+        bar_off_features,    # Features 48-51
+        turn_feature_np,     # Feature 52
+        pip_diff_feature     # Feature 53
+    ]).astype(np.float32)
 
-    if len(v) != INPUT_DIM:
-        raise ValueError(f"Erreur interne: Taille tenseur {len(v)} != INPUT_DIM {INPUT_DIM}")
+    if final_features.shape[0] != INPUT_DIM:
+        raise ValueError(f"Erreur interne: Taille tenseur {final_features.shape[0]} != INPUT_DIM {INPUT_DIM}")
 
-    return torch.tensor(v, dtype=torch.float32).to(DEVICE)
+    return torch.tensor(final_features, device=DEVICE)
 
 # ---------------------------------------------------------------------------
 # 4-bis) Tensor pour la perspective d'un joueur (+ pour W, - pour B)
@@ -184,25 +254,25 @@ def state_to_tensor(game: 'BackgammonGame') -> torch.Tensor:
 def _tensor_for_player(game: 'BackgammonGame', player: str) -> torch.Tensor:
     """
     Retourne un tenseur normalisé du point de vue du joueur spécifié.
-    Si joueur='b', inverse la représentation du plateau et features associées.
+    Si player='b', inverse la représentation.
     """
-    t_np = state_to_tensor(game).cpu().numpy()
+    t_np = state_to_tensor(game).cpu().numpy() # Obtenir comme numpy array
 
-    if player == 'b':
-        # Inverse la représentation du plateau
+    if player == 'b': # Si on veut la perspective du Noir
+        # Inverser features plateau (Blancs <=> Noirs)
         whites_orig = t_np[0:24].copy()
         blacks_orig = t_np[24:48].copy()
-        t_np[0:24] = blacks_orig  # Noir devient joueur courant
-        t_np[24:48] = whites_orig # Blanc devient adversaire
+        t_np[0:24] = blacks_orig  # Noirs deviennent features 0-23
+        t_np[24:48] = whites_orig # Blancs deviennent features 24-47
 
-        # Inverse compteurs bar/off
-        t_np[48], t_np[49] = t_np[49], t_np[48] # Bar
-        t_np[50], t_np[51] = t_np[51], t_np[50] # Off
+        # Inverser features bar/off
+        t_np[48], t_np[49] = t_np[49], t_np[48] # bar_w <=> bar_b
+        t_np[50], t_np[51] = t_np[51], t_np[50] # off_w <=> off_b
 
-        # Inverse indicateur de tour
+        # Inverser feature de tour (1=adversaire(Blanc), 0=joueur(Noir))
         t_np[52] = 1.0 - t_np[52]
 
-        # Inverse différence de pip
+        # Inverser différence de pip (pip_b - pip_w) -> -(pip_b - pip_w) = (pip_w - pip_b)
         t_np[53] = -t_np[53]
 
     return torch.tensor(t_np, device=DEVICE)
@@ -1189,30 +1259,33 @@ class BackgammonGame:
 
 # --- Fonctions wrappers ---
 
-'''def _evaluate_position_heuristic(game_state: BackgammonGame, player_to_evaluate: str, weights: HeuristicWeights) -> float:
+def _evaluate_position_heuristic(game_state: BackgammonGame, player_to_evaluate: str, weights: HeuristicWeights) -> float:
     """ Wrapper pour l'appel à la méthode statique d'heuristique. """
-    return BackgammonGame.evaluate_position_heuristic(game_state, player_to_evaluate, weights)'''
+    # Assurez-vous que BackgammonGame.evaluate_position_heuristic existe bien comme méthode statique
+    return BackgammonGame.evaluate_position_heuristic(game_state, player_to_evaluate, weights)
 
 def evaluate_position_hybrid(game_state: "BackgammonGame", player_to_evaluate: str) -> float:
     """ Combine l'heuristique et le réseau neuronal (si disponible). """
     # 1. Score Heuristique
     phase = game_state.determine_game_phase()
-    weights = PHASE_WEIGHTS.get(phase, MIDGAME_WEIGHTS)
-    h_val = game_state.evaluate_position_heuristic(player_to_evaluate, weights)
+    weights = PHASE_WEIGHTS.get(phase, MIDGAME_WEIGHTS) # Default to midgame weights
+    h_val = _evaluate_position_heuristic(game_state, player_to_evaluate, weights)
 
     # 2. Score Réseau Neuronal (si chargé et pondéré)
     nn_val = 0.0
-    net = NET
+    net = NET # Utilise le modèle global chargé (type MiniMaxHelper)
     if net is not None and NN_WEIGHT > 0.0:
         try:
-            with torch.no_grad(): # Pas de calcul de gradient
-                # Tenseur du point de vue du joueur
+            with torch.no_grad(): # Pas de calcul de gradient pour l'inférence
+                # Obtenir le tenseur du point de vue du joueur
                 t = _tensor_for_player(game_state, player_to_evaluate)
-                nn_pred = net(t.unsqueeze(0)) # Ajoute dimension batch (1, 54)
+                # Le forward de MiniMaxHelper gère l'ajout/retrait de dim batch si nécessaire
+                nn_pred = net(t)
                 nn_val = nn_pred.item() # Récupère score scalaire
         except Exception as e:
             print(f"Erreur évaluation NN: {e}")
-            return h_val # Fallback heuristique si NN échoue
+            # Fallback heuristique si NN échoue
+            return h_val
 
     # 3. Combinaison pondérée
     combined_score = (1.0 - NN_WEIGHT) * h_val + NN_WEIGHT * nn_val
@@ -1228,13 +1301,12 @@ def _flush_batch():
     """ Traite le batch d'évaluations NN en attente. """
     global BATCH_BUF, BATCH_KEYS, TT
     if not BATCH_BUF or NET is None: return
-
     try:
         tensors = [_tensor_for_player(g, p) for g, p in BATCH_BUF]
         tensor_batch = torch.stack(tensors) # Crée batch tensor (N, 54)
         with torch.no_grad():
-            preds = NET(tensor_batch) # Prédictions (N, 1)
-            preds_list = preds.squeeze(1).tolist() # Liste de scores (N,)
+            preds = NET(tensor_batch) # Prédictions (N,) car forward squeeze la dim 1
+            preds_list = preds.tolist() # Liste de scores (N,)
         # Stocke résultats dans la Table de Transposition
         for k, v in zip(BATCH_KEYS, preds_list): TT[k] = v
     except Exception as e:
@@ -1246,22 +1318,25 @@ def zobrist(g: "BackgammonGame") -> int:
     """ Calcule et retourne le hash Zobrist comme entier. """
     return int(g.compute_zobrist())
 
+
 def minimax(game: "BackgammonGame", depth: int,
             player_to_move: str, maximizing_player: str,
             alpha: float, beta: float) -> float:
     """
-    Recherche Expectiminimax avec élagage alpha-beta (partiel), TT, et eval NN par batch aux feuilles.
+    Recherche Expectiminimax avec élagage alpha-beta (partiel), TT, et eval hybride.
     Retourne le score espéré du point de vue de `maximizing_player`.
     """
     # --- Lookup Table de Transposition ---
     key = (zobrist(game), depth, player_to_move)
-    if key in TT: return TT[key] # Résultat déjà calculé
+    cached_value = TT.get(key)
+    if cached_value is not None:
+        return cached_value # Résultat déjà calculé
 
     # --- État Terminal ---
     if game.is_game_over():
         if game.winner == maximizing_player: return float("inf")
         elif game.winner is not None: return float("-inf")
-        else: return 0.0 # Nul ou erreur ?
+        else: return 0.0 # Nul?
 
     # --- Profondeur Max / Feuille ---
     if depth == 0:
@@ -1280,19 +1355,26 @@ def minimax(game: "BackgammonGame", depth: int,
     for d1, d2 in sampled_dice_rolls:
         dice_for_turn = (d1, d1, d1, d1) if d1 == d2 else (d1, d2)
         # Génère tous les états possibles après ce lancer
+        # Utiliser une copie du jeu pour générer les états sans affecter l'état actuel
+        game_copy_for_generation = game.copy()
         possible_outcomes = generate_possible_next_states_with_sequences(
-            game, dice_for_turn, player_to_move)
+            game_copy_for_generation, dice_for_turn, player_to_move)
 
         best_eval_for_this_roll = float("-inf") if is_maximizing_node else float("inf")
+        # Vérifie si aucun coup n'était possible pour CE lancer spécifique
         no_move_possible = (not possible_outcomes or (len(possible_outcomes) == 1 and not possible_outcomes[0][1]))
 
         if no_move_possible: # Si aucun coup possible -> passe son tour
+             # Évalue l'état actuel (game) mais du point de vue de l'adversaire (next_player)
+             # et à une profondeur moindre.
              eval_score = minimax(game, depth - 1, next_player, maximizing_player, alpha, beta)
              best_eval_for_this_roll = eval_score
         else:
             # Itère sur chaque état résultant possible
             for next_state, _ in possible_outcomes:
+                # Appel récursif sur l'état *après* le coup
                 eval_score = minimax(next_state, depth - 1, next_player, maximizing_player, alpha, beta)
+
                 # Mise à jour Min/Max et Alpha/Beta
                 if is_maximizing_node:
                     best_eval_for_this_roll = max(best_eval_for_this_roll, eval_score)
@@ -1300,26 +1382,34 @@ def minimax(game: "BackgammonGame", depth: int,
                 else: # Minimizing node
                     best_eval_for_this_roll = min(best_eval_for_this_roll, eval_score)
                     beta = min(beta, best_eval_for_this_roll)
-                # Élagage Alpha-Beta pour CE lancer de dé
-                if beta <= alpha: break
 
-        # Accumule le score pour ce lancer
-        if best_eval_for_this_roll != float("-inf") and best_eval_for_this_roll != float("inf"):
-             accumulated_score += best_eval_for_this_roll; num_samples_processed += 1
-        elif no_move_possible:
-             accumulated_score += best_eval_for_this_roll; num_samples_processed += 1
-        elif best_eval_for_this_roll in [float("-inf"), float("inf")]: # Cas élagage sur infini
-             accumulated_score += best_eval_for_this_roll; num_samples_processed += 1
+                # Élagage Alpha-Beta pour CE lancer de dé
+                if beta <= alpha:
+                    break # Arrête d'évaluer les autres séquences pour ce lancer
+
+        # Accumule le score pour ce lancer (attention aux infinis)
+        # S'assure de compter le sample même si le score est infini ou si aucun coup n'était possible
+        if best_eval_for_this_roll != float("-inf") or best_eval_for_this_roll != float("inf"):
+             # S'il n'y a pas eu de coup, best_eval_for_this_roll est le score du minimax(depth-1)
+             accumulated_score += best_eval_for_this_roll
+             num_samples_processed += 1
+        # Gérer le cas où un score infini est retourné (pruning ou état terminal)
+        elif best_eval_for_this_roll in [float("-inf"), float("inf")]:
+             accumulated_score += best_eval_for_this_roll
+             num_samples_processed += 1
+        # Note : Il pourrait manquer un cas si no_move_possible=True ET le score retourné est infini,
+        # mais la logique ci-dessus devrait le couvrir.
 
     # Calcul de la moyenne (score espéré)
     avg_score = 0.0
     if num_samples_processed > 0:
+        # Gérer les cas où la somme accumulée est infinie
         if accumulated_score == float("inf"): avg_score = float("inf")
         elif accumulated_score == float("-inf"): avg_score = float("-inf")
         else: avg_score = accumulated_score / num_samples_processed
+    # else: avg_score reste 0.0 (ne devrait pas arriver si NUM_DICE_SAMPLES > 0)
 
     TT[key] = avg_score # Stocke le résultat moyen
-
     return avg_score
 
 def generate_possible_next_states_with_sequences(
@@ -1330,7 +1420,7 @@ def generate_possible_next_states_with_sequences(
     """
     Explore toutes les séquences de coups possibles pour un lancer via DFS.
     Retourne [(état_final_unique, sequence_de_coups)].
-    Gère les cas où tous les dés ne peuvent pas être joués.
+    Gère les cas où tous les dés ne peuvent pas être joués et la règle du dé fort.
     """
     results: Dict[tuple, Tuple[BackgammonGame, list]] = {} # état_plateau -> (état_jeu, séquence)
     initial_state_key = current_game_state.board_tuple()
@@ -1338,124 +1428,112 @@ def generate_possible_next_states_with_sequences(
 
     # --- Fonction DFS récursive ---
     def find_sequences(start_state: BackgammonGame, dice_remaining: List[int], current_sequence: List[Tuple[int | str, int | str]]):
-        current_legal_singles = start_state.get_legal_actions() # Coups simples légaux maintenant
+        # Recalcule les coups possibles DANS l'état actuel de la simulation
+        temp_game_state_for_moves = start_state.copy()
+        temp_game_state_for_moves.dice = list(dice_remaining) # Met les dés restants pour get_legal_actions
+        current_legal_singles = temp_game_state_for_moves.get_legal_actions()
 
         # Cas de base: Plus de dés ou plus de coups légaux
         if not dice_remaining or not current_legal_singles:
             final_state_key = start_state.board_tuple()
-            if final_state_key not in results: # Ajoute si état final nouveau
+            if final_state_key not in results:
                  final_state_copy = start_state.copy()
-                 final_state_copy.dice = []; final_state_copy.available_moves = []
+                 final_state_copy.dice = [] # Nettoyer pour l'état final retourné
+                 final_state_copy.available_moves = []
                  results[final_state_key] = (final_state_copy, current_sequence)
             return
 
         # Étape récursive: Essaye chaque coup légal possible
         played_move_in_iteration = False
         processed_singles_this_level = set()
+        current_dice_to_try = list(dice_remaining)
 
-        temp_dice = dice_remaining.copy()
-
-        for die in temp_dice: # Pour chaque dé restant
-            moves_for_this_die = start_state._get_single_moves_for_die(player, die, start_state) # Coups possibles avec CE dé
+        for die in current_dice_to_try:
+            moves_for_this_die = start_state._get_single_moves_for_die(player, die, start_state)
             for move in moves_for_this_die:
-                move_key = (move[0], move[1], die) # (coup + dé utilisé)
-
-                # Vérifie si ce coup est légal MAINTENANT et pas déjà traité à ce niveau pour ce dé
+                move_key = (move[0], move[1], die)
                 if move in current_legal_singles and move_key not in processed_singles_this_level:
                     next_state_candidate = start_state.copy()
-                    # Utilise base_logic pour ne pas affecter les dés de l'appelant
                     if next_state_candidate.make_move_base_logic(player, move[0], move[1]):
                          played_move_in_iteration = True
-                         processed_singles_this_level.add(move_key) # Marque comme traité
-
-                         # Prépare dés pour appel récursif
-                         next_dice = dice_remaining.copy()
+                         processed_singles_this_level.add(move_key)
+                         next_dice = list(dice_remaining)
                          try:
                              next_dice.remove(die)
-                             # Met à jour état candidat (dés/coups) pour la récursion
-                             next_state_candidate.dice = next_dice
-                             next_state_candidate.available_moves = next_state_candidate.get_legal_actions()
                              find_sequences(next_state_candidate, next_dice, current_sequence + [move])
                          except ValueError:
-                             print(f"Erreur: Dé {die} non trouvé dans {dice_remaining} pour DFS coup {move}")
-                             continue # Erreur logique, bim boum, on saute
-
-        # Si on avait des dés mais aucun coup n'a pu être joué à cette étape -> état final valide
+                             print(f"Erreur interne DFS: Dé {die} non trouvé dans {dice_remaining} pour coup {move}")
+                             continue
+        # Gestion fin de chemin si aucun coup joué dans cet appel
         if not played_move_in_iteration and dice_remaining:
             final_state_key = start_state.board_tuple()
             if final_state_key not in results:
-                 final_state_copy = start_state.copy()
-                 final_state_copy.dice = []; final_state_copy.available_moves = []
+                 final_state_copy = start_state.copy(); final_state_copy.dice = []; final_state_copy.available_moves = []
                  results[final_state_key] = (final_state_copy, current_sequence)
 
     # --- Lancement du DFS ---
-    sim_game = current_game_state.copy()
-    sim_game.dice = list(dice_tuple) # Initialise avec les dés du tour
-    sim_game.available_moves = sim_game.get_legal_actions()
-    find_sequences(sim_game, list(dice_tuple), [])
-
-    # --- Filtrage des Résultats selon les règles ---
-    # On ne garde que les états finaux valides (max dés joués, règle du dé fort si nécessaire)
-    if not results: return [(current_game_state.copy(), [])] # Aucun coup possible dès le début
-
-    max_moves_made = max(len(seq) for _, seq in results.values()) if results else 0
-
-    # Cas particulier: aucun coup possible
-    if max_moves_made == 0 and len(results) == 1 and initial_state_key in results:
+    sim_game_initial = current_game_state.copy()
+    sim_game_initial.dice = list(dice_tuple)
+    sim_game_initial.available_moves = sim_game_initial.get_legal_actions()
+    if not sim_game_initial.available_moves:
         no_move_state = current_game_state.copy(); no_move_state.dice = []; no_move_state.available_moves = []
         return [(no_move_state, [])]
+    find_sequences(sim_game_initial, list(dice_tuple), [])
 
-    required_moves = max_moves_made # Par défaut: on exige le max de coups trouvés
-
-    # Règle spéciale non-double: si impossible de jouer les deux, doit jouer le plus grand
+    # --- Filtrage des Résultats ---
+    if not results: no_move_state = current_game_state.copy(); no_move_state.dice = []; no_move_state.available_moves = []; return [(no_move_state, [])]
+    max_moves_made = max(len(seq) for _, seq in results.values()) if results else 0
+    if max_moves_made == 0 and len(results) == 1 and initial_state_key in results: no_move_state = current_game_state.copy(); no_move_state.dice = []; no_move_state.available_moves = []; return [(no_move_state, [])]
+    required_moves = max_moves_made
     is_non_double = len(dice_tuple) == 2 and dice_tuple[0] != dice_tuple[1]
     if is_non_double:
          d1, d2 = dice_tuple[0], dice_tuple[1]; larger_die, smaller_die = max(d1, d2), min(d1, d2)
-         larger_moves = sim_game._get_single_moves_for_die(player, larger_die, sim_game)
-         smaller_moves = sim_game._get_single_moves_for_die(player, smaller_die, sim_game)
-
-         if larger_moves and not smaller_moves: required_moves = 1 # Doit jouer le seul jouable (grand)
-         elif not larger_moves and smaller_moves: required_moves = 1 # Doit jouer le seul jouable (petit)
-         elif larger_moves and smaller_moves: # Les deux jouables individuellement
-              can_play_both = False; temp_g = sim_game.copy()
+         larger_moves = sim_game_initial._get_single_moves_for_die(player, larger_die, sim_game_initial) # Check initial state
+         smaller_moves = sim_game_initial._get_single_moves_for_die(player, smaller_die, sim_game_initial) # Check initial state
+         if larger_moves and not smaller_moves: required_moves = 1
+         elif not larger_moves and smaller_moves: required_moves = 1
+         elif larger_moves and smaller_moves:
+              can_play_both = False; temp_g = sim_game_initial.copy() # Check from initial state
               # Test Grand puis Petit
               for m_lg in larger_moves:
                   temp_g1 = temp_g.copy()
                   if temp_g1.make_move_base_logic(player, m_lg[0], m_lg[1]):
-                      if temp_g1._get_single_moves_for_die(player, smaller_die, temp_g1): can_play_both = True; break
+                      # Check moves possible AFTER the first move
+                      temp_g1.dice=[smaller_die] # Temporarily set dice for check
+                      if temp_g1._get_single_moves_for_die(player, smaller_die, temp_g1):
+                          can_play_both = True
+                          break # *** BREAK ICI EST CORRECT ***
               # Test Petit puis Grand (si besoin)
               if not can_play_both:
                   for m_sm in smaller_moves:
                       temp_g1 = temp_g.copy()
                       if temp_g1.make_move_base_logic(player, m_sm[0], m_sm[1]):
-                          if temp_g1._get_single_moves_for_die(player, larger_die, temp_g1): can_play_both = True; break
+                           # Check moves possible AFTER the first move
+                           temp_g1.dice=[larger_die] # Temporarily set dice for check
+                           if temp_g1._get_single_moves_for_die(player, larger_die, temp_g1):
+                               can_play_both = True
+                               break # *** BREAK ICI EST CORRECT ***
               # Si impossible de jouer les deux -> doit jouer le plus grand (seq de 1 coup)
               if not can_play_both:
                    required_moves = 1
-                   # Filtre spécifique pour garder que les séquences de 1 coup avec le dé fort
                    specific_filtered_outcomes = []
                    for state, seq in results.values():
                        if len(seq) == 1:
-                            move_src, move_dst = seq[0]
-                            # Détermine quel dé a été utilisé (gère overshoot sortie)
-                            nominal = sim_game._get_die_for_move(move_src, move_dst, player)
-                            die_used = nominal
-                            if move_dst == 'off' and nominal is None: # Overshoot
-                                needed = (25 - move_src) if player == 'w' else move_src
-                                possible_d = sorted([d for d in dice_tuple if d >= needed])
-                                if possible_d: die_used = possible_d[0] # Suppose le plus petit valide utilisé
+                            move_src, move_dst = seq[0]; nominal = sim_game_initial._get_die_for_move(move_src, move_dst, player); die_used = nominal
+                            if move_dst == 'off' and nominal is None: # Overshoot logic
+                                needed = (25 - move_src) if player == 'w' else move_src; possible_d = sorted([d for d in dice_tuple if d >= needed]); die_used = possible_d[0] if possible_d else None
+                            # Vérifie si le dé utilisé pour ce coup unique était le plus grand
                             if die_used == larger_die:
                                 specific_filtered_outcomes.append((state, seq))
-                   return specific_filtered_outcomes # Retourne ce filtre spécial immédiatement
+                   # Si on a trouvé des coups uniques avec le dé fort, on retourne ça
+                   # Sinon (très rare?), on laisse le filtre général s'appliquer (qui prendra len=1 aussi)
+                   if specific_filtered_outcomes:
+                       return specific_filtered_outcomes
+                   # else: fallback to general filter below
 
     # Filtre général: garde les séquences ayant joué le nombre requis de coups
     final_valid_outcomes = [(state, seq) for state, seq in results.values() if len(seq) == required_moves]
-
-    # S'il ne reste rien après filtre, c'est peut-être que 0 coup était la seule option valide
-    if not final_valid_outcomes and initial_state_key in results and len(results[initial_state_key][1]) == 0:
-        no_move_state = current_game_state.copy(); no_move_state.dice = []; no_move_state.available_moves = []
-        return [(no_move_state, [])]
-
+    if not final_valid_outcomes and initial_state_key in results and len(results[initial_state_key][1]) == 0: no_move_state = current_game_state.copy(); no_move_state.dice = []; no_move_state.available_moves = []; return [(no_move_state, [])]
     return final_valid_outcomes
 
 # ---------------------------------------------------------------------------
@@ -1487,13 +1565,14 @@ def select_ai_move(game: "BackgammonGame", dice: Tuple[int, ...], ai_player: str
         if score_for_state > best_score:
             best_score = score_for_state; optimal_resulting_state = next_state; optimal_sequence = sequence
 
-    # Fallback inutile, bon au cas où...
+    # Fallback si aucune issue choisie
     if optimal_resulting_state is None:
         if possible_outcomes:
              optimal_resulting_state = possible_outcomes[0][0]; optimal_sequence = possible_outcomes[0][1]
-        else: # Doit être capturé plus tôt
+        else: # Devrait être capturé plus tôt
              optimal_resulting_state = game.copy(); optimal_sequence = []
 
+    # Flush batch NN final (peut être optionnel si batching non utilisé intensivement)
     _flush_batch()
 
     # Retourne la meilleure séquence et l'état résultant (dés/coups vidés)
@@ -1522,19 +1601,18 @@ def select_ai_move_nn_only(game: "BackgammonGame", dice: Tuple[int, ...], ai_pla
         no_move_state = game.copy(); no_move_state.dice = []; no_move_state.available_moves = []
         return [], no_move_state
 
-
     for next_state, sequence in possible_outcomes:
         try:
             with torch.no_grad():
                 t = _tensor_for_player(next_state, ai_player) # Tenseur pour l'IA
-                score_for_state = NET(t.unsqueeze(0)).item() # Score NN direct
+                score_for_state = NET(t).item() # Score NN direct
 
             # 3. Choisit l'issue avec le meilleur score NN
             if score_for_state > best_score:
                 best_score = score_for_state; optimal_resulting_state = next_state; optimal_sequence = sequence
         except Exception as e:
             print(f"AI ERREUR: Échec éval NN pour séquence {sequence}: {e}")
-            continue # Ignoré
+            continue # Ignore cette issue
 
     # Fallback
     if optimal_resulting_state is None:
